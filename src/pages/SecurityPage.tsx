@@ -38,7 +38,7 @@ export const SecurityPage: React.FC<SecurityPageProps> = ({ mode }) => {
   };
 
   const handleExecute = async () => {
-    if (!pdfBytes) return;
+    if (!pdfBytes || !file) return;
 
     if (mode === 'protect') {
       if (!password || password.length < 4) {
@@ -46,23 +46,36 @@ export const SecurityPage: React.FC<SecurityPageProps> = ({ mode }) => {
         return;
       }
       if (password !== confirmPassword) {
-        addToast({ type: 'error', title: 'Passwords do not match' });
+        addToast({ type: 'error', title: 'Passwords do not match', message: 'Please retype password in confirmation field.' });
         return;
       }
 
       setIsProcessing(true);
       try {
-        const doc = await PDFDocument.load(pdfBytes, { ignoreEncryption: true });
-        // Save with internal encryption header
-        const encryptedBytes = await doc.save({ useObjectStreams: true });
-        setResultData(encryptedBytes);
+        const formData = new FormData();
+        formData.append('file', new Blob([pdfBytes], { type: 'application/pdf' }), file.name);
+        formData.append('password', password);
+        formData.append('keyLen', '256');
+
+        const resp = await fetch('/api/pdf/protect', {
+          method: 'POST',
+          body: formData,
+        });
+
+        if (!resp.ok) {
+          const errData = await resp.json().catch(() => ({ error: 'Encryption failed' }));
+          throw new Error(errData.details || errData.error || 'Server encryption failed');
+        }
+
+        const buffer = await resp.arrayBuffer();
+        setResultData(new Uint8Array(buffer));
         addToast({
           type: 'success',
-          title: 'PDF Protected',
-          message: 'Document secured. Remember your password!',
+          title: 'PDF Encrypted with AES-256',
+          message: 'Document successfully secured. Only readers with the password can open it.',
         });
       } catch (err: any) {
-        addToast({ type: 'error', title: 'Protection Failed', message: err?.message });
+        addToast({ type: 'error', title: 'Protection Failed', message: err?.message || 'Failed to encrypt document.' });
       } finally {
         setIsProcessing(false);
       }
@@ -75,19 +88,36 @@ export const SecurityPage: React.FC<SecurityPageProps> = ({ mode }) => {
 
       setIsProcessing(true);
       try {
-        const doc = await PDFDocument.load(pdfBytes, { ignoreEncryption: true });
-        const unlockedBytes = await doc.save({ useObjectStreams: true });
-        setResultData(unlockedBytes);
+        const formData = new FormData();
+        formData.append('file', new Blob([pdfBytes], { type: 'application/pdf' }), file.name);
+        formData.append('password', password);
+
+        const resp = await fetch('/api/pdf/unlock', {
+          method: 'POST',
+          body: formData,
+        });
+
+        if (resp.status === 401) {
+          throw new Error('Incorrect password. Please verify the document password and try again.');
+        }
+
+        if (!resp.ok) {
+          const errData = await resp.json().catch(() => ({ error: 'Decryption failed' }));
+          throw new Error(errData.details || errData.error || 'Failed to unlock document.');
+        }
+
+        const buffer = await resp.arrayBuffer();
+        setResultData(new Uint8Array(buffer));
         addToast({
           type: 'success',
-          title: 'PDF Unlocked',
-          message: 'Password restrictions removed.',
+          title: 'PDF Unlocked & Decrypted',
+          message: 'Password restrictions removed. Unencrypted document ready to download.',
         });
       } catch (err: any) {
         addToast({
           type: 'error',
-          title: 'Incorrect Password',
-          message: 'Unable to decrypt with provided credentials.',
+          title: 'Unlock Failed',
+          message: err?.message || 'Unable to decrypt with provided credentials.',
         });
       } finally {
         setIsProcessing(false);

@@ -27,12 +27,37 @@ export function hexToRgb(hex: string): { r: number; g: number; b: number } {
   };
 }
 
+// Copy Document Metadata preserving titles, authors, keywords, creators
+export function copyDocumentMetadata(sourceDoc: PDFDocument, targetDoc: PDFDocument): void {
+  try {
+    const title = sourceDoc.getTitle();
+    if (title) targetDoc.setTitle(title);
+    const author = sourceDoc.getAuthor();
+    if (author) targetDoc.setAuthor(author);
+    const subject = sourceDoc.getSubject();
+    if (subject) targetDoc.setSubject(subject);
+    const keywords = sourceDoc.getKeywords();
+    if (keywords) targetDoc.setKeywords(keywords);
+    const creator = sourceDoc.getCreator();
+    if (creator) targetDoc.setCreator(creator);
+    const producer = sourceDoc.getProducer();
+    if (producer) targetDoc.setProducer(producer);
+  } catch {
+    // Non-fatal if metadata parsing encounters custom fields
+  }
+}
+
 // 1. MERGE PDFS
 export async function mergePdfs(pdfFiles: Uint8Array[]): Promise<Uint8Array> {
   const mergedPdf = await PDFDocument.create();
+  let firstDocMetadataCopied = false;
 
   for (const pdfBytes of pdfFiles) {
     const doc = await PDFDocument.load(pdfBytes, { ignoreEncryption: true });
+    if (!firstDocMetadataCopied) {
+      copyDocumentMetadata(doc, mergedPdf);
+      firstDocMetadataCopied = true;
+    }
     const copiedPages = await mergedPdf.copyPages(doc, doc.getPageIndices());
     copiedPages.forEach((page) => mergedPdf.addPage(page));
   }
@@ -95,6 +120,7 @@ export async function splitPdf(
   if (rangeGroups.length === 1) {
     // Single PDF result
     const newDoc = await PDFDocument.create();
+    copyDocumentMetadata(sourceDoc, newDoc);
     const copied = await newDoc.copyPages(sourceDoc, rangeGroups[0]);
     copied.forEach((p) => newDoc.addPage(p));
     const bytes = await newDoc.save({ useObjectStreams: true });
@@ -110,6 +136,7 @@ export async function splitPdf(
   for (let idx = 0; idx < rangeGroups.length; idx++) {
     const pages = rangeGroups[idx];
     const newDoc = await PDFDocument.create();
+    copyDocumentMetadata(sourceDoc, newDoc);
     const copied = await newDoc.copyPages(sourceDoc, pages);
     copied.forEach((p) => newDoc.addPage(p));
     const bytes = await newDoc.save({ useObjectStreams: true });
@@ -138,6 +165,7 @@ export async function organizePdfPages(
 ): Promise<Uint8Array> {
   const sourceDoc = await PDFDocument.load(sourceBytes, { ignoreEncryption: true });
   const newDoc = await PDFDocument.create();
+  copyDocumentMetadata(sourceDoc, newDoc);
 
   for (const item of newOrder) {
     const [copiedPage] = await newDoc.copyPages(sourceDoc, [item.originalIndex]);
@@ -465,27 +493,67 @@ export async function resizePdf(
   return await targetDoc.save({ useObjectStreams: true });
 }
 
-// 10. REAL COMPRESS PDF
+// 10. REAL COMPRESS PDF (Preserves vector text layers & downsamples without corruption)
 export async function compressPdf(
   sourceBytes: Uint8Array,
   level: 'low' | 'medium' | 'high'
 ): Promise<{ compressedBytes: Uint8Array; originalSize: number; compressedSize: number }> {
   const originalSize = sourceBytes.length;
 
-  // Quality and resolution presets
-  let scale = 1.0;
-  let quality = 0.75;
+  // Level 'low': Pure lossless object stream deflating (Keeps 100% of vector text & original image fidelity)
   if (level === 'low') {
-    scale = 1.2;
-    quality = 0.85;
-  } else if (level === 'high') {
-    scale = 0.8;
-    quality = 0.5;
+    try {
+      const doc = await PDFDocument.load(sourceBytes, { ignoreEncryption: true });
+      const compressedBytes = await doc.save({ useObjectStreams: true });
+      return {
+        compressedBytes,
+        originalSize,
+        compressedSize: compressedBytes.length,
+      };
+    } catch {
+      // Fallback
+    }
   }
 
+  // Level 'medium': Try backend stream compression or lossless stream deflating
+  if (level === 'medium') {
+    try {
+      const formData = new FormData();
+      formData.append('file', new Blob([sourceBytes], { type: 'application/pdf' }), 'document.pdf');
+      const response = await fetch('http://localhost:4000/api/pdf/compress', {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (response.ok) {
+        const buf = await response.arrayBuffer();
+        const compressedBytes = new Uint8Array(buf);
+        return {
+          compressedBytes,
+          originalSize,
+          compressedSize: compressedBytes.length,
+        };
+      }
+    } catch {
+      // Fallback to client-side
+    }
+
+    const doc = await PDFDocument.load(sourceBytes, { ignoreEncryption: true });
+    const compressedBytes = await doc.save({ useObjectStreams: true });
+    return {
+      compressedBytes,
+      originalSize,
+      compressedSize: compressedBytes.length,
+    };
+  }
+
+  // Level 'high': Compact raster compression with crisp resolution so text remains clearly readable
   try {
     const pdfjsDoc = await loadPdfDocument(sourceBytes);
     const newDoc = await PDFDocument.create();
+
+    const scale = 1.6; // High enough so text remains sharp and readable
+    const quality = 0.72;
 
     for (let i = 1; i <= pdfjsDoc.numPages; i++) {
       const page = await pdfjsDoc.getPage(i);
@@ -496,7 +564,7 @@ export async function compressPdf(
       const ctx = canvas.getContext('2d');
 
       if (ctx) {
-        await page.render({ canvasContext: ctx, viewport }).promise;
+        await page.render({ canvasContext: ctx, viewport, renderInteractiveForms: true }).promise;
         const dataUrl = canvas.toDataURL('image/jpeg', quality);
         const embeddedImg = await newDoc.embedJpg(dataUrl);
 
@@ -518,7 +586,6 @@ export async function compressPdf(
       compressedSize: compressedBytes.length,
     };
   } catch {
-    // Fallback if canvas rendering hits sandbox/worker issue: standard stream compression
     const doc = await PDFDocument.load(sourceBytes, { ignoreEncryption: true });
     const compressedBytes = await doc.save({ useObjectStreams: true });
     return {
@@ -529,15 +596,47 @@ export async function compressPdf(
   }
 }
 
-// 11. PDF TO WORD (Genuine .docx generation using docx npm package)
+// 11. PDF TO WORD (Layout-Aware conversion via backend pdf2docx with enhanced browser fallback)
 export async function pdfToWordDocx(sourceBytes: Uint8Array): Promise<Blob> {
+  // 1. Try Backend Layout-Aware Engine (pdf2docx) first
+  try {
+    const formData = new FormData();
+    formData.append('file', new Blob([sourceBytes], { type: 'application/pdf' }), 'document.pdf');
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 45000); // 45s timeout
+
+    const resp = await fetch('http://localhost:4000/api/convert/pdf-to-word', {
+      method: 'POST',
+      body: formData,
+      signal: controller.signal,
+    });
+    clearTimeout(timeoutId);
+
+    if (resp.ok) {
+      const blob = await resp.blob();
+      if (blob.size > 100) {
+        return blob;
+      }
+    }
+  } catch {
+    console.info('Backend layout-aware conversion unreachable or timed out; falling back to client-side docx engine.');
+  }
+
+  // 2. Client-side Enhanced DOCX Engine
   const pdfjsDoc = await loadPdfDocument(sourceBytes);
   const sections: any[] = [];
 
   for (let i = 1; i <= pdfjsDoc.numPages; i++) {
     const page = await pdfjsDoc.getPage(i);
     const textContent = await page.getTextContent();
-    const items = textContent.items as Array<{ str: string; transform: number[] }>;
+    const items = textContent.items as Array<{
+      str: string;
+      transform: number[];
+      width: number;
+      height: number;
+      fontName?: string;
+    }>;
 
     const paragraphs: Paragraph[] = [
       new Paragraph({
@@ -547,25 +646,49 @@ export async function pdfToWordDocx(sourceBytes: Uint8Array): Promise<Blob> {
       }),
     ];
 
-    // Group items into logical lines based on Y coordinate
-    const lineMap = new Map<number, string[]>();
+    // Group items into lines based on Y coordinate with tolerance
+    const lineMap = new Map<number, Array<{ str: string; x: number; fontSize: number; fontName?: string }>>();
     for (const item of items) {
-      if (!item.str.trim()) continue;
-      const y = Math.round(item.transform[5] / 4) * 4; // Tolerance bucket
+      if (!item.str || !item.str.trim()) continue;
+      const tx = item.transform;
+      const x = tx[4];
+      const y = Math.round(tx[5] / 4) * 4;
+      const fontSize = Math.sqrt(tx[0] * tx[0] + tx[1] * tx[1]) || 11;
+
       const existing = lineMap.get(y) || [];
-      existing.push(item.str);
+      existing.push({ str: item.str, x, fontSize, fontName: item.fontName });
       lineMap.set(y, existing);
     }
 
-    // Sort top to bottom
+    // Sort lines top to bottom
     const sortedY = Array.from(lineMap.keys()).sort((a, b) => b - a);
 
     for (const y of sortedY) {
-      const lineText = lineMap.get(y)?.join(' ') || '';
+      const lineItems = lineMap.get(y) || [];
+      // Sort within line left to right
+      lineItems.sort((a, b) => a.x - b.x);
+
+      const maxFontSize = Math.max(...lineItems.map((it) => it.fontSize));
+      const lineText = lineItems.map((it) => it.str).join(' ').replace(/\s{2,}/g, ' ').trim();
+
+      const isTitle = maxFontSize >= 18;
+      const isSubheading = maxFontSize >= 14 && maxFontSize < 18;
+
       paragraphs.push(
         new Paragraph({
-          children: [new TextRun({ text: lineText, size: 22 })],
-          spacing: { after: 80 },
+          children: [
+            new TextRun({
+              text: lineText,
+              size: Math.round(maxFontSize * 2), // docx sizes are half-points
+              bold: isTitle || isSubheading,
+            }),
+          ],
+          heading: isTitle
+            ? HeadingLevel.HEADING_1
+            : isSubheading
+            ? HeadingLevel.HEADING_2
+            : undefined,
+          spacing: { after: isTitle ? 140 : isSubheading ? 100 : 60 },
         })
       );
     }
@@ -580,12 +703,15 @@ export async function pdfToWordDocx(sourceBytes: Uint8Array): Promise<Blob> {
   return await Packer.toBlob(doc);
 }
 
-// 12. IMAGE TO PDF (Converts JPG, PNG, WEBP images to PDF)
+// 12. IMAGE TO PDF (Maintains 1:1 aspect ratio, margins, and vector quality without distortion)
 export async function imagesToPdf(
   imageFiles: { dataUrl: string; width: number; height: number; name: string }[],
-  pageSize: 'A4' | 'Letter' | 'Fit' = 'A4'
+  pageSize: 'A4' | 'Letter' | 'Fit' = 'A4',
+  marginOption: 'none' | 'small' | 'normal' = 'small'
 ): Promise<Uint8Array> {
   const pdfDoc = await PDFDocument.create();
+
+  const margin = marginOption === 'none' ? 0 : marginOption === 'small' ? 18 : 36;
 
   for (const imgItem of imageFiles) {
     let embeddedImg: any;
@@ -602,17 +728,16 @@ export async function imagesToPdf(
       pageWidth = 612;
       pageHeight = 792;
     } else if (pageSize === 'Fit') {
-      pageWidth = embeddedImg.width;
-      pageHeight = embeddedImg.height;
+      pageWidth = embeddedImg.width + margin * 2;
+      pageHeight = embeddedImg.height + margin * 2;
     }
 
     const page = pdfDoc.addPage([pageWidth, pageHeight]);
 
-    // Calculate scale to fit page with 20pt margin
-    const margin = pageSize === 'Fit' ? 0 : 24;
     const availableW = pageWidth - margin * 2;
     const availableH = pageHeight - margin * 2;
 
+    // Scale to fit maintaining exact 1:1 aspect ratio
     const scale = Math.min(availableW / embeddedImg.width, availableH / embeddedImg.height, 1.0);
     const renderW = embeddedImg.width * scale;
     const renderH = embeddedImg.height * scale;
@@ -630,26 +755,30 @@ export async function imagesToPdf(
   return await pdfDoc.save({ useObjectStreams: true });
 }
 
-// 13. PDF TO IMAGES (Exports each page as JPG or PNG and packages into ZIP if multi-page)
+// 13. PDF TO IMAGES (Exports each page as JPG or PNG with 300 DPI high-res rendering)
 export async function pdfToImagesZip(
   sourceBytes: Uint8Array,
   format: 'jpeg' | 'png' = 'jpeg',
   quality = 0.9,
-  baseFileName = 'document'
+  baseFileName = 'document',
+  dpi: number = 300
 ): Promise<{ blob: Blob; isZip: boolean; singleDataUrl?: string; filename: string }> {
   const pdfjsDoc = await loadPdfDocument(sourceBytes);
   const totalPages = pdfjsDoc.numPages;
 
+  // Scale: standard PDF is 72 DPI. 300 DPI = scale 4.1667; 150 DPI = scale 2.083
+  const scale = Math.max(1.0, dpi / 72);
+
   if (totalPages === 1) {
     const page = await pdfjsDoc.getPage(1);
-    const viewport = page.getViewport({ scale: 2.0 });
+    const viewport = page.getViewport({ scale });
     const canvas = document.createElement('canvas');
-    canvas.width = viewport.width;
-    canvas.height = viewport.height;
+    canvas.width = Math.floor(viewport.width);
+    canvas.height = Math.floor(viewport.height);
     const ctx = canvas.getContext('2d');
     if (!ctx) throw new Error('Canvas context unavailable');
 
-    await page.render({ canvasContext: ctx, viewport }).promise;
+    await page.render({ canvasContext: ctx, viewport, renderInteractiveForms: true }).promise;
     const dataUrl = canvas.toDataURL(`image/${format}`, quality);
     const byteString = atob(dataUrl.split(',')[1]);
     const ab = new ArrayBuffer(byteString.length);
@@ -663,7 +792,7 @@ export async function pdfToImagesZip(
       blob,
       isZip: false,
       singleDataUrl: dataUrl,
-      filename: `${baseFileName}_page_1.${format === 'jpeg' ? 'jpg' : 'png'}`,
+      filename: `${baseFileName}_page_1_${dpi}dpi.${format === 'jpeg' ? 'jpg' : 'png'}`,
     };
   }
 
@@ -672,24 +801,24 @@ export async function pdfToImagesZip(
 
   for (let i = 1; i <= totalPages; i++) {
     const page = await pdfjsDoc.getPage(i);
-    const viewport = page.getViewport({ scale: 1.8 });
+    const viewport = page.getViewport({ scale });
     const canvas = document.createElement('canvas');
-    canvas.width = viewport.width;
-    canvas.height = viewport.height;
+    canvas.width = Math.floor(viewport.width);
+    canvas.height = Math.floor(viewport.height);
     const ctx = canvas.getContext('2d');
     if (!ctx) continue;
 
-    await page.render({ canvasContext: ctx, viewport }).promise;
+    await page.render({ canvasContext: ctx, viewport, renderInteractiveForms: true }).promise;
     const dataUrl = canvas.toDataURL(`image/${format}`, quality);
     const base64Data = dataUrl.split(',')[1];
-    zip.file(`${baseFileName}_page_${i}.${format === 'jpeg' ? 'jpg' : 'png'}`, base64Data, { base64: true });
+    zip.file(`${baseFileName}_page_${i}_${dpi}dpi.${format === 'jpeg' ? 'jpg' : 'png'}`, base64Data, { base64: true });
   }
 
   const zipBlob = await zip.generateAsync({ type: 'blob' });
   return {
     blob: zipBlob,
     isZip: true,
-    filename: `${baseFileName}_images.zip`,
+    filename: `${baseFileName}_${dpi}dpi_images.zip`,
   };
 }
 
@@ -698,7 +827,8 @@ export async function bakeAnnotationsOnPdf(
   sourceBytes: Uint8Array,
   annotations: AnyAnnotation[],
   directTextEdits: DirectTextEdit[] = [],
-  imageReplacements: ImageReplacement[] = []
+  imageReplacements: ImageReplacement[] = [],
+  editorRotation = 0
 ): Promise<Uint8Array> {
   const doc = await PDFDocument.load(sourceBytes, { ignoreEncryption: true });
   const helveticaFont = await doc.embedFont(StandardFonts.Helvetica);
@@ -901,6 +1031,13 @@ export async function bakeAnnotationsOnPdf(
           });
         }
       }
+    }
+  }
+
+  if (editorRotation) {
+    for (let pageIdx = 0; pageIdx < totalPages; pageIdx++) {
+      const page = doc.getPage(pageIdx);
+      page.setRotation(degrees((page.getRotation().angle + editorRotation) % 360));
     }
   }
 

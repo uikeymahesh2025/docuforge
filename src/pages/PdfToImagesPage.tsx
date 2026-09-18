@@ -12,6 +12,7 @@ export const PdfToImagesPage: React.FC = () => {
   const [pdfBytes, setPdfBytes] = useState<Uint8Array | null>(null);
   const [format, setFormat] = useState<'jpeg' | 'png'>('jpeg');
   const [quality, setQuality] = useState(0.9);
+  const [dpi, setDpi] = useState<number>(300);
   const [totalPages, setTotalPages] = useState(1);
   const [isProcessing, setIsProcessing] = useState(false);
   const [result, setResult] = useState<{ blob: Blob; isZip: boolean; filename: string } | null>(null);
@@ -46,13 +47,14 @@ export const PdfToImagesPage: React.FC = () => {
         pdfBytes,
         format,
         quality,
-        file.name.replace(/\.pdf$/i, '')
+        file.name.replace(/\.pdf$/i, ''),
+        dpi
       );
       setResult({ blob: res.blob, isZip: res.isZip, filename: res.filename });
       addToast({
         type: 'success',
         title: 'Conversion Complete',
-        message: res.isZip ? 'Images packaged into a ZIP archive.' : 'Image rendered successfully.',
+        message: res.isZip ? `All pages exported at ${dpi} DPI into a ZIP archive.` : `Page 1 exported cleanly at ${dpi} DPI.`,
       });
     } catch (err: any) {
       addToast({ type: 'error', title: 'Conversion Failed', message: err?.message });
@@ -128,6 +130,39 @@ export const PdfToImagesPage: React.FC = () => {
                 >
                   PNG (Lossless sharpness, best for graphics)
                 </button>
+              </div>
+            </div>
+
+            {/* DPI Resolution Selection */}
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <label className="text-xs font-semibold text-zinc-300">
+                  Rendering Resolution (DPI)
+                </label>
+                <span className="text-[11px] font-mono text-brand-gold bg-amber-500/10 px-2 py-0.5 rounded border border-brand-gold/20">
+                  {dpi === 150 ? 'Standard Web (~1240 × 1754 px)' : dpi === 300 ? 'Print-Ready 300 DPI (~2480 × 3508 px)' : 'Ultra HD 600 DPI (~4960 × 7016 px)'}
+                </span>
+              </div>
+              <div className="grid grid-cols-3 gap-3">
+                {[
+                  { value: 150, title: '150 DPI', desc: 'Fast & Lightweight' },
+                  { value: 300, title: '300 DPI (Recommended)', desc: 'Official Print Sharpness' },
+                  { value: 600, title: '600 DPI', desc: 'Ultra-High Fidelity' },
+                ].map((item) => (
+                  <button
+                    key={item.value}
+                    type="button"
+                    onClick={() => setDpi(item.value)}
+                    className={`p-3 rounded-xl border text-left transition ${
+                      dpi === item.value
+                        ? 'border-brand-gold bg-amber-500/10 text-white shadow-gold-glow/20'
+                        : 'border-white/10 text-zinc-400 hover:text-white bg-zinc-900/50'
+                    }`}
+                  >
+                    <div className="text-xs font-bold text-white mb-0.5">{item.title}</div>
+                    <div className="text-[10px] text-zinc-400">{item.desc}</div>
+                  </button>
+                ))}
               </div>
             </div>
 

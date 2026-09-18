@@ -38,6 +38,7 @@ export const EditorPage: React.FC = () => {
     pageCount,
     currentPage,
     scale,
+    rotation,
     activeTool,
     annotations,
     directTextEdits,
@@ -156,7 +157,8 @@ export const EditorPage: React.FC = () => {
         pdfBytes,
         annotations,
         directTextEdits,
-        imageReplacements
+        imageReplacements,
+        rotation
       );
       setExportResult(bakedBytes);
       addToast({

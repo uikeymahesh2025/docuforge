@@ -30,11 +30,50 @@ export const ExtractImagesPage: React.FC = () => {
     if (!pdfBytes || !file) return;
     setIsProcessing(true);
     try {
-      const res = await pdfToImagesZip(pdfBytes, 'png', 1.0, file.name.replace(/\.pdf$/i, '') + '_extracted_images');
-      setZipResult({ blob: res.blob, filename: res.filename });
-      addToast({ type: 'success', title: 'Images Extracted', message: 'Packaged into ZIP archive.' });
+      // 1. Attempt raw embedded image extraction from PDF stream (PyMuPDF backend)
+      let zipBlob: Blob | null = null;
+      let filename = `${file.name.replace(/\.pdf$/i, '')}_extracted_images.zip`;
+
+      try {
+        const formData = new FormData();
+        formData.append('file', new Blob([pdfBytes], { type: 'application/pdf' }), file.name);
+
+        const resp = await fetch('/api/pdf/extract-images', {
+          method: 'POST',
+          body: formData,
+        });
+
+        if (resp.ok) {
+          const b = await resp.blob();
+          if (b.size > 100) {
+            zipBlob = b;
+          }
+        }
+      } catch (backendErr) {
+        console.info('Backend raw image extractor unreachable; falling back to 300 DPI high-res page extraction.');
+      }
+
+      // 2. Fallback to 300 DPI high-res page image extraction if no embedded XObjects or backend unavailable
+      if (!zipBlob) {
+        const res = await pdfToImagesZip(
+          pdfBytes,
+          'png',
+          1.0,
+          file.name.replace(/\.pdf$/i, '') + '_extracted_images',
+          300
+        );
+        zipBlob = res.blob;
+        filename = res.filename;
+      }
+
+      setZipResult({ blob: zipBlob, filename });
+      addToast({
+        type: 'success',
+        title: 'Images Extracted',
+        message: 'High-resolution images packaged into ZIP archive.',
+      });
     } catch (err: any) {
-      addToast({ type: 'error', title: 'Extraction Failed', message: err?.message });
+      addToast({ type: 'error', title: 'Extraction Failed', message: err?.message || 'Could not extract images.' });
     } finally {
       setIsProcessing(false);
     }

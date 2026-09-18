@@ -5,6 +5,7 @@ import { ProcessingModal } from '../components/tools/ProcessingModal';
 import { ResultModal } from '../components/tools/ResultModal';
 import { redactPdf } from '../pdf/pdfModifier';
 import { loadPdfDocument } from '../pdf/pdfManager';
+import { PDFDocument } from 'pdf-lib';
 import { useToastStore } from '../stores/useToastStore';
 import { sanitizeFilename } from '../utils/downloadHelpers';
 
@@ -13,7 +14,8 @@ export const RemoveWatermarkPage: React.FC = () => {
   const [pdfBytes, setPdfBytes] = useState<Uint8Array | null>(null);
   const [totalPages, setTotalPages] = useState<number>(1);
   const [coverColor, setCoverColor] = useState<'white' | 'black'>('white');
-  const [coverageArea, setCoverageArea] = useState<'center' | 'header' | 'footer' | 'custom'>('center');
+  const [coverageArea, setCoverageArea] = useState<'center' | 'header' | 'footer'>('center');
+  const [pageScope, setPageScope] = useState<'all' | 'first' | 'odd' | 'even'>('all');
   const [isProcessing, setIsProcessing] = useState(false);
   const [resultData, setResultData] = useState<Uint8Array | null>(null);
   const addToast = useToastStore((state) => state.addToast);
@@ -46,34 +48,43 @@ export const RemoveWatermarkPage: React.FC = () => {
     if (!pdfBytes) return;
     setIsProcessing(true);
     try {
-      // Build visual cover patches across pages
+      const doc = await PDFDocument.load(pdfBytes, { ignoreEncryption: true });
+      const numPages = doc.getPageCount();
       const patches = [];
-      for (let p = 1; p <= totalPages; p++) {
+
+      for (let p = 1; p <= numPages; p++) {
+        if (pageScope === 'first' && p !== 1) continue;
+        if (pageScope === 'odd' && p % 2 === 0) continue;
+        if (pageScope === 'even' && p % 2 !== 0) continue;
+
+        const page = doc.getPage(p - 1);
+        const { width, height } = page.getSize();
+
         if (coverageArea === 'center') {
           patches.push({
             pageNumber: p,
-            x: 100,
-            y: 300,
-            width: 400,
-            height: 250,
+            x: width * 0.1,
+            y: height * 0.25,
+            width: width * 0.8,
+            height: height * 0.5,
             color: coverColor,
           });
         } else if (coverageArea === 'header') {
           patches.push({
             pageNumber: p,
-            x: 40,
-            y: 20,
-            width: 520,
-            height: 80,
+            x: width * 0.05,
+            y: 15,
+            width: width * 0.9,
+            height: 70,
             color: coverColor,
           });
         } else if (coverageArea === 'footer') {
           patches.push({
             pageNumber: p,
-            x: 40,
-            y: 740,
-            width: 520,
-            height: 80,
+            x: width * 0.05,
+            y: height - 85,
+            width: width * 0.9,
+            height: 70,
             color: coverColor,
           });
         }
@@ -84,7 +95,7 @@ export const RemoveWatermarkPage: React.FC = () => {
       addToast({
         type: 'success',
         title: 'Watermark Removal Applied',
-        message: 'Visual cover has been applied to the specified watermark zones.',
+        message: `Applied visual cover mask to ${patches.length} ${patches.length === 1 ? 'page' : 'pages'}.`,
       });
     } catch (err: any) {
       addToast({
@@ -145,6 +156,34 @@ export const RemoveWatermarkPage: React.FC = () => {
               >
                 Change File
               </button>
+            </div>
+
+            {/* Page Application Scope */}
+            <div>
+              <label className="block text-xs font-semibold text-zinc-300 mb-2">
+                Apply Watermark Removal To
+              </label>
+              <div className="grid grid-cols-4 gap-2">
+                {[
+                  { id: 'all', label: 'All Pages' },
+                  { id: 'first', label: 'First Page' },
+                  { id: 'odd', label: 'Odd Pages' },
+                  { id: 'even', label: 'Even Pages' },
+                ].map((scope) => (
+                  <button
+                    key={scope.id}
+                    type="button"
+                    onClick={() => setPageScope(scope.id as any)}
+                    className={`py-2 px-2 rounded-xl border text-xs font-semibold transition text-center ${
+                      pageScope === scope.id
+                        ? 'border-brand-gold bg-amber-500/10 text-white'
+                        : 'border-white/10 bg-zinc-900 text-zinc-400 hover:text-white'
+                    }`}
+                  >
+                    {scope.label}
+                  </button>
+                ))}
+              </div>
             </div>
 
             {/* Coverage Area Selection */}

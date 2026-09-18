@@ -128,7 +128,7 @@ export const TOOLS: ToolItem[] = [
     name: 'HTML to PDF',
     description: 'Convert web code, articles and HTML snippets into clean paginated PDFs.',
     category: 'convert-to',
-    path: '/word-to-pdf?mode=html',
+    path: '/html-to-pdf',
     icon: 'Code',
   },
 

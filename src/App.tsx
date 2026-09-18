@@ -24,6 +24,7 @@ import { PdfToImagesPage } from './pages/PdfToImagesPage';
 import { ImageToPdfPage } from './pages/ImageToPdfPage';
 import { PdfToWordPage } from './pages/PdfToWordPage';
 import { WordToPdfPage } from './pages/WordToPdfPage';
+import { HtmlToPdfPage } from './pages/HtmlToPdfPage';
 import { PdfToTextPage } from './pages/PdfToTextPage';
 import { SecurityPage } from './pages/SecurityPage';
 import { RedactPage } from './pages/RedactPage';
@@ -88,6 +89,7 @@ export const App: React.FC = () => {
             <Route path="/image-to-pdf" element={<ImageToPdfPage />} />
             <Route path="/pdf-to-word" element={<PdfToWordPage />} />
             <Route path="/word-to-pdf" element={<WordToPdfPage />} />
+            <Route path="/html-to-pdf" element={<HtmlToPdfPage />} />
             <Route path="/pdf-to-text" element={<PdfToTextPage />} />
             <Route path="/protect-pdf" element={<SecurityPage mode="protect" />} />
             <Route path="/unlock-pdf" element={<SecurityPage mode="unlock" />} />
