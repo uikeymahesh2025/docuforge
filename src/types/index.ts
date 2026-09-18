@@ -21,6 +21,7 @@ export interface ToolItem {
 export type EditorTool =
   | 'select'
   | 'hand'
+  | 'direct-text'
   | 'text'
   | 'draw'
   | 'highlight'
@@ -31,8 +32,45 @@ export type EditorTool =
   | 'arrow'
   | 'line'
   | 'image'
+  | 'replace-image'
   | 'signature'
   | 'eraser';
+
+export interface ExtractedTextItem {
+  id: string;
+  str: string;
+  x: number; // Viewport screen X
+  y: number; // Viewport screen Y
+  width: number;
+  height: number;
+  fontSize: number;
+  fontName: string;
+}
+
+export interface DirectTextEdit {
+  id: string;
+  pageNumber: number;
+  originalText: string;
+  newText: string;
+  x: number; // PDF points X
+  y: number; // PDF points Y (top-down)
+  width: number;
+  height: number;
+  fontSize: number;
+  fontFamily: string;
+  color: string;
+  backgroundColor: string;
+}
+
+export interface ImageReplacement {
+  id: string;
+  pageNumber: number;
+  dataUrl: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
 
 export interface AnnotationPoint {
   x: number;

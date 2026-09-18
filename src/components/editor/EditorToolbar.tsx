@@ -2,6 +2,8 @@ import React, { useRef } from 'react';
 import {
   MousePointer,
   Hand,
+  FileEdit,
+  ImagePlus,
   Type,
   Pencil,
   Highlighter,
@@ -45,10 +47,12 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
-  const tools: { id: EditorTool; label: string; icon: React.ElementType; action?: () => void }[] = [
+  const tools: { id: EditorTool; label: string; icon: React.ElementType; action?: () => void; badge?: string }[] = [
     { id: 'select', label: 'Select', icon: MousePointer },
     { id: 'hand', label: 'Hand', icon: Hand },
-    { id: 'text', label: 'Text', icon: Type },
+    { id: 'direct-text', label: 'Direct Text Edit', icon: FileEdit, badge: 'Direct' },
+    { id: 'replace-image', label: 'Replace Image', icon: ImagePlus, badge: 'New' },
+    { id: 'text', label: 'Add Text', icon: Type },
     { id: 'draw', label: 'Draw', icon: Pencil },
     { id: 'highlight', label: 'Highlight', icon: Highlighter },
     { id: 'underline', label: 'Underline', icon: UnderlineIcon },
@@ -59,7 +63,7 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
     { id: 'line', label: 'Line', icon: Minus },
     {
       id: 'image',
-      label: 'Image',
+      label: 'Add Image',
       icon: ImageIcon,
       action: () => fileInputRef.current?.click(),
     },
@@ -99,7 +103,7 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
             <button
               key={t.id}
               onClick={() => handleToolClick(t)}
-              className={`flex flex-col items-center justify-center p-2 min-w-[50px] rounded-xl transition shrink-0 ${
+              className={`flex flex-col items-center justify-center p-2 min-w-[50px] rounded-xl transition shrink-0 relative ${
                 isActive
                   ? 'bg-brand-gold text-black shadow-sm font-semibold'
                   : 'text-zinc-400 hover:text-white hover:bg-white/5'
@@ -108,6 +112,9 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
             >
               <Icon className="w-4 h-4" />
               <span className="text-[9px] mt-0.5 leading-none">{t.label}</span>
+              {t.badge && !isActive && (
+                <span className="absolute top-1 right-1 w-1.5 h-1.5 rounded-full bg-brand-gold"></span>
+              )}
             </button>
           );
         })}
@@ -141,9 +148,19 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
             title={t.label}
           >
             <Icon className="w-4 h-4" />
+            {t.badge && !isActive && (
+              <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-brand-gold animate-pulse"></span>
+            )}
             {/* Tooltip */}
             <div className="absolute left-14 hidden group-hover:block bg-[#1A1A22] text-white text-[11px] font-medium px-2.5 py-1 rounded-md border border-white/10 shadow-lg whitespace-nowrap z-50 pointer-events-none">
-              {t.label}
+              <div className="flex items-center gap-1.5">
+                <span>{t.label}</span>
+                {t.badge && (
+                  <span className="text-[9px] px-1.5 py-0.2 bg-brand-gold text-black font-bold rounded-sm uppercase tracking-wider">
+                    {t.badge}
+                  </span>
+                )}
+              </div>
             </div>
           </button>
         );

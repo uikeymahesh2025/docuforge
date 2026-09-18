@@ -38,7 +38,10 @@ export const EditorPage: React.FC = () => {
     pageCount,
     currentPage,
     scale,
+    activeTool,
     annotations,
+    directTextEdits,
+    imageReplacements,
     historyIndex,
     history,
     setPdf,
@@ -149,7 +152,12 @@ export const EditorPage: React.FC = () => {
     setIsProcessing(true);
     setProcessingStatus('Embedding annotations & finalizing PDF...');
     try {
-      const bakedBytes = await bakeAnnotationsOnPdf(pdfBytes, annotations);
+      const bakedBytes = await bakeAnnotationsOnPdf(
+        pdfBytes,
+        annotations,
+        directTextEdits,
+        imageReplacements
+      );
       setExportResult(bakedBytes);
       addToast({
         type: 'success',
@@ -383,8 +391,30 @@ export const EditorPage: React.FC = () => {
           />
         </div>
 
-        {/* Center Canvas Area */}
-        <PdfCanvasViewer />
+        {/* Center Canvas Area with Mode Helper Banner */}
+        <div className="flex-1 flex flex-col overflow-hidden relative">
+          {activeTool === 'direct-text' && (
+            <div className="bg-brand-gold/10 border-b border-brand-gold/20 px-4 py-2 flex items-center justify-between text-xs text-amber-200 z-20 animate-fadeIn">
+              <div className="flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full bg-brand-gold animate-pulse" />
+                <span className="font-semibold text-brand-gold">Direct Text Edit Active:</span>
+                <span>Hover and click on any text in the PDF to edit it in place. The original text will be masked and updated cleanly.</span>
+              </div>
+            </div>
+          )}
+
+          {activeTool === 'replace-image' && (
+            <div className="bg-blue-500/10 border-b border-blue-500/20 px-4 py-2 flex items-center justify-between text-xs text-blue-200 z-20 animate-fadeIn">
+              <div className="flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full bg-blue-400 animate-pulse" />
+                <span className="font-semibold text-blue-400">Image Replace Active:</span>
+                <span>Drag a rectangle or click anywhere on the page to replace an existing image, graphic, or logo.</span>
+              </div>
+            </div>
+          )}
+
+          <PdfCanvasViewer />
+        </div>
 
         {/* Right Properties Panel (Desktop) */}
         <PropertiesPanel isMobile={false} />

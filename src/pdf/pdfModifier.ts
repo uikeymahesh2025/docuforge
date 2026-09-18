@@ -7,6 +7,8 @@ import {
   HeaderFooterSettings,
   BatesSettings,
   AnyAnnotation,
+  DirectTextEdit,
+  ImageReplacement,
 } from '../types';
 import { loadPdfDocument } from './pdfManager';
 
@@ -691,15 +693,102 @@ export async function pdfToImagesZip(
   };
 }
 
-// 14. BAKE EDITOR ANNOTATIONS ONTO PDF
+// 14. BAKE EDITOR ANNOTATIONS ONTO PDF (Including Direct Text Edits & Image Replacements)
 export async function bakeAnnotationsOnPdf(
   sourceBytes: Uint8Array,
-  annotations: AnyAnnotation[]
+  annotations: AnyAnnotation[],
+  directTextEdits: DirectTextEdit[] = [],
+  imageReplacements: ImageReplacement[] = []
 ): Promise<Uint8Array> {
   const doc = await PDFDocument.load(sourceBytes, { ignoreEncryption: true });
   const helveticaFont = await doc.embedFont(StandardFonts.Helvetica);
   const helveticaBold = await doc.embedFont(StandardFonts.HelveticaBold);
+  const totalPages = doc.getPageCount();
 
+  // 1. Process Direct Text Edits and Image Replacements per page
+  const directTextMap = new Map<number, DirectTextEdit[]>();
+  for (const edit of directTextEdits) {
+    const list = directTextMap.get(edit.pageNumber) || [];
+    list.push(edit);
+    directTextMap.set(edit.pageNumber, list);
+  }
+
+  const imageRepMap = new Map<number, ImageReplacement[]>();
+  for (const rep of imageReplacements) {
+    const list = imageRepMap.get(rep.pageNumber) || [];
+    list.push(rep);
+    imageRepMap.set(rep.pageNumber, list);
+  }
+
+  for (let pageIdx = 0; pageIdx < totalPages; pageIdx++) {
+    const pageNum = pageIdx + 1;
+    const page = doc.getPage(pageIdx);
+    const { height: pageH } = page.getSize();
+
+    // A. Apply Image Replacements
+    const pageReps = imageRepMap.get(pageNum) || [];
+    for (const rep of pageReps) {
+      if (!rep.dataUrl) continue;
+      const repY = pageH - rep.y - rep.height;
+      page.drawRectangle({
+        x: rep.x,
+        y: repY,
+        width: rep.width,
+        height: rep.height,
+        color: rgb(1, 1, 1),
+        opacity: 1,
+      });
+
+      try {
+        let embedded: any;
+        if (rep.dataUrl.startsWith('data:image/png')) {
+          embedded = await doc.embedPng(rep.dataUrl);
+        } else {
+          embedded = await doc.embedJpg(rep.dataUrl);
+        }
+        page.drawImage(embedded, {
+          x: rep.x,
+          y: repY,
+          width: rep.width,
+          height: rep.height,
+        });
+      } catch (err) {
+        console.warn('Failed embedding replacement image:', err);
+      }
+    }
+
+    // B. Apply Direct Text Edits
+    const pageEdits = directTextMap.get(pageNum) || [];
+    for (const edit of pageEdits) {
+      const bgRgb = hexToRgb(edit.backgroundColor || '#ffffff');
+      const maskY = pageH - edit.y - edit.height;
+
+      // Draw background mask rectangle precisely covering original text
+      page.drawRectangle({
+        x: edit.x - 1,
+        y: maskY - 1,
+        width: Math.max(edit.width + 2, 8),
+        height: edit.height + 2,
+        color: rgb(bgRgb.r, bgRgb.g, bgRgb.b),
+        opacity: 1,
+      });
+
+      // Draw replacement text if present
+      if (edit.newText && edit.newText.trim()) {
+        const textRgb = hexToRgb(edit.color || '#000000');
+        const textY = pageH - edit.y - (edit.fontSize || 12) * 0.95;
+        page.drawText(edit.newText, {
+          x: edit.x,
+          y: textY,
+          size: edit.fontSize || 12,
+          font: helveticaFont,
+          color: rgb(textRgb.r, textRgb.g, textRgb.b),
+        });
+      }
+    }
+  }
+
+  // 2. Process Annotations (Shapes, drawings, stamps, overlays)
   const pagesMap = new Map<number, AnyAnnotation[]>();
   for (const ann of annotations) {
     const list = pagesMap.get(ann.pageNumber) || [];

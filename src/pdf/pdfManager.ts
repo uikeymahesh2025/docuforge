@@ -139,3 +139,45 @@ export async function searchPdf(
 
   return results;
 }
+
+export async function getPageTextItemsWithCoords(
+  pdfDoc: pdfjsLib.PDFDocumentProxy,
+  pageNumber: number,
+  scale = 1.0,
+  rotation = 0
+): Promise<import('../types').ExtractedTextItem[]> {
+  const page = await pdfDoc.getPage(pageNumber);
+  const totalRotation = (page.rotate + rotation) % 360;
+  const viewport = page.getViewport({ scale: 1.0, rotation: totalRotation });
+  const textContent = await page.getTextContent();
+  const results: import('../types').ExtractedTextItem[] = [];
+
+  for (let i = 0; i < textContent.items.length; i++) {
+    const item = textContent.items[i] as any;
+    if (!item.str || !item.str.trim()) continue;
+
+    const tx = item.transform;
+    const pdfX = tx[4];
+    const pdfY = tx[5];
+    const fontSize = Math.sqrt(tx[0] * tx[0] + tx[1] * tx[1]) || 12;
+
+    const viewPoint = viewport.convertToViewportPoint(pdfX, pdfY);
+    const screenX = Math.round(viewPoint[0]);
+    const screenY = Math.round(viewPoint[1] - fontSize * 0.9);
+    const itemWidth = Math.max(item.width, item.str.length * (fontSize * 0.5));
+    const itemHeight = Math.max(item.height, fontSize * 1.15);
+
+    results.push({
+      id: `text-${pageNumber}-${i}`,
+      str: item.str,
+      x: screenX,
+      y: screenY,
+      width: itemWidth,
+      height: itemHeight,
+      fontSize,
+      fontName: item.fontName || 'Helvetica',
+    });
+  }
+
+  return results;
+}

@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { EditorTool, AnyAnnotation } from '../types';
+import { EditorTool, AnyAnnotation, DirectTextEdit, ImageReplacement, ExtractedTextItem } from '../types';
 
 interface EditorState {
   pdfBytes: Uint8Array | null;
@@ -11,6 +11,9 @@ interface EditorState {
   activeTool: EditorTool;
   selectedAnnotationId: string | null;
   annotations: AnyAnnotation[];
+  directTextEdits: DirectTextEdit[];
+  imageReplacements: ImageReplacement[];
+  extractedPageTextItems: ExtractedTextItem[];
   history: AnyAnnotation[][];
   historyIndex: number;
   isSearching: boolean;
@@ -45,6 +48,13 @@ interface EditorState {
   setIsSearching: (val: boolean) => void;
   setSearchQuery: (query: string) => void;
 
+  // Direct Text Edits & Image Replacements
+  addDirectTextEdit: (edit: DirectTextEdit) => void;
+  removeDirectTextEdit: (id: string) => void;
+  addImageReplacement: (rep: ImageReplacement) => void;
+  removeImageReplacement: (id: string) => void;
+  setExtractedPageTextItems: (items: ExtractedTextItem[]) => void;
+
   // History & Annotations
   addAnnotation: (ann: AnyAnnotation) => void;
   updateAnnotation: (id: string, patch: Partial<AnyAnnotation>) => void;
@@ -63,6 +73,9 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   activeTool: 'select',
   selectedAnnotationId: null,
   annotations: [],
+  directTextEdits: [],
+  imageReplacements: [],
+  extractedPageTextItems: [],
   history: [[]],
   historyIndex: 0,
   isSearching: false,
@@ -85,6 +98,9 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       scale: 1.0,
       rotation: 0,
       annotations: [],
+      directTextEdits: [],
+      imageReplacements: [],
+      extractedPageTextItems: [],
       history: [[]],
       historyIndex: 0,
       selectedAnnotationId: null,
@@ -98,10 +114,41 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       pageCount: 0,
       currentPage: 1,
       annotations: [],
+      directTextEdits: [],
+      imageReplacements: [],
+      extractedPageTextItems: [],
       history: [[]],
       historyIndex: 0,
       selectedAnnotationId: null,
     });
+  },
+
+  addDirectTextEdit: (edit) => {
+    set((state) => ({
+      directTextEdits: [...state.directTextEdits.filter((e) => e.id !== edit.id), edit],
+    }));
+  },
+
+  removeDirectTextEdit: (id) => {
+    set((state) => ({
+      directTextEdits: state.directTextEdits.filter((e) => e.id !== id),
+    }));
+  },
+
+  addImageReplacement: (rep) => {
+    set((state) => ({
+      imageReplacements: [...state.imageReplacements.filter((r) => r.id !== rep.id), rep],
+    }));
+  },
+
+  removeImageReplacement: (id) => {
+    set((state) => ({
+      imageReplacements: state.imageReplacements.filter((r) => r.id !== id),
+    }));
+  },
+
+  setExtractedPageTextItems: (items) => {
+    set({ extractedPageTextItems: items });
   },
 
   setCurrentPage: (page) => {
