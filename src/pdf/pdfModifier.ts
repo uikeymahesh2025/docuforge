@@ -1,0 +1,908 @@
+import { PDFDocument, rgb, degrees, StandardFonts, PageSizes } from 'pdf-lib';
+import JSZip from 'jszip';
+import { Document, Paragraph, TextRun, Packer, HeadingLevel } from 'docx';
+import {
+  WatermarkSettings,
+  PageNumberSettings,
+  HeaderFooterSettings,
+  BatesSettings,
+  AnyAnnotation,
+} from '../types';
+import { loadPdfDocument } from './pdfManager';
+
+// Color parser utility (hex to pdf-lib rgb [0..1])
+export function hexToRgb(hex: string): { r: number; g: number; b: number } {
+  let clean = hex.replace('#', '');
+  if (clean.length === 3) {
+    clean = clean.split('').map((c) => c + c).join('');
+  }
+  const num = parseInt(clean, 16);
+  if (isNaN(num)) return { r: 0, g: 0, b: 0 };
+  return {
+    r: ((num >> 16) & 255) / 255,
+    g: ((num >> 8) & 255) / 255,
+    b: (num & 255) / 255,
+  };
+}
+
+// 1. MERGE PDFS
+export async function mergePdfs(pdfFiles: Uint8Array[]): Promise<Uint8Array> {
+  const mergedPdf = await PDFDocument.create();
+
+  for (const pdfBytes of pdfFiles) {
+    const doc = await PDFDocument.load(pdfBytes, { ignoreEncryption: true });
+    const copiedPages = await mergedPdf.copyPages(doc, doc.getPageIndices());
+    copiedPages.forEach((page) => mergedPdf.addPage(page));
+  }
+
+  return await mergedPdf.save({ useObjectStreams: true });
+}
+
+// 2. SPLIT PDF
+export interface SplitResult {
+  isZip: boolean;
+  data: Uint8Array | Blob;
+  filename: string;
+}
+
+export async function splitPdf(
+  sourceBytes: Uint8Array,
+  rangesString: string, // e.g. "1-2, 3, 4-5"
+  baseFileName = 'document'
+): Promise<SplitResult> {
+  const sourceDoc = await PDFDocument.load(sourceBytes, { ignoreEncryption: true });
+  const totalPages = sourceDoc.getPageCount();
+
+  // Parse ranges
+  const rangeGroups: number[][] = [];
+  const parts = rangesString.split(',').map((s) => s.trim()).filter(Boolean);
+
+  if (parts.length === 0) {
+    // Default: split every page
+    for (let i = 0; i < totalPages; i++) {
+      rangeGroups.push([i]);
+    }
+  } else {
+    for (const part of parts) {
+      if (part.includes('-')) {
+        const [startStr, endStr] = part.split('-');
+        let start = parseInt(startStr, 10) - 1;
+        let end = parseInt(endStr, 10) - 1;
+        if (!isNaN(start) && !isNaN(end)) {
+          start = Math.max(0, Math.min(start, totalPages - 1));
+          end = Math.max(0, Math.min(end, totalPages - 1));
+          const group: number[] = [];
+          for (let i = Math.min(start, end); i <= Math.max(start, end); i++) {
+            group.push(i);
+          }
+          if (group.length > 0) rangeGroups.push(group);
+        }
+      } else {
+        const pageNum = parseInt(part, 10) - 1;
+        if (!isNaN(pageNum) && pageNum >= 0 && pageNum < totalPages) {
+          rangeGroups.push([pageNum]);
+        }
+      }
+    }
+  }
+
+  if (rangeGroups.length === 0) {
+    throw new Error('No valid page ranges specified.');
+  }
+
+  if (rangeGroups.length === 1) {
+    // Single PDF result
+    const newDoc = await PDFDocument.create();
+    const copied = await newDoc.copyPages(sourceDoc, rangeGroups[0]);
+    copied.forEach((p) => newDoc.addPage(p));
+    const bytes = await newDoc.save({ useObjectStreams: true });
+    return {
+      isZip: false,
+      data: bytes,
+      filename: `${baseFileName}_split.pdf`,
+    };
+  }
+
+  // Multiple PDFs -> ZIP
+  const zip = new JSZip();
+  for (let idx = 0; idx < rangeGroups.length; idx++) {
+    const pages = rangeGroups[idx];
+    const newDoc = await PDFDocument.create();
+    const copied = await newDoc.copyPages(sourceDoc, pages);
+    copied.forEach((p) => newDoc.addPage(p));
+    const bytes = await newDoc.save({ useObjectStreams: true });
+
+    const rangeLabel = pages.length === 1 ? `page_${pages[0] + 1}` : `pages_${pages[0] + 1}-${pages[pages.length - 1] + 1}`;
+    zip.file(`${baseFileName}_${rangeLabel}.pdf`, bytes);
+  }
+
+  const zipBlob = await zip.generateAsync({ type: 'blob' });
+  return {
+    isZip: true,
+    data: zipBlob,
+    filename: `${baseFileName}_split_files.zip`,
+  };
+}
+
+// 3. ORGANIZE PAGES (reorder, delete, duplicate, rotate)
+export interface PageOperation {
+  originalIndex: number;
+  rotation: number; // 0, 90, 180, 270
+}
+
+export async function organizePdfPages(
+  sourceBytes: Uint8Array,
+  newOrder: PageOperation[]
+): Promise<Uint8Array> {
+  const sourceDoc = await PDFDocument.load(sourceBytes, { ignoreEncryption: true });
+  const newDoc = await PDFDocument.create();
+
+  for (const item of newOrder) {
+    const [copiedPage] = await newDoc.copyPages(sourceDoc, [item.originalIndex]);
+    if (item.rotation) {
+      copiedPage.setRotation(degrees((copiedPage.getRotation().angle + item.rotation) % 360));
+    }
+    newDoc.addPage(copiedPage);
+  }
+
+  return await newDoc.save({ useObjectStreams: true });
+}
+
+// 4. WATERMARK PDF (Default text: "UIKEY AI 8770912734")
+export async function applyWatermark(
+  sourceBytes: Uint8Array,
+  settings: WatermarkSettings
+): Promise<Uint8Array> {
+  const doc = await PDFDocument.load(sourceBytes, { ignoreEncryption: true });
+  const font = await doc.embedFont(StandardFonts.HelveticaBold);
+  const color = hexToRgb(settings.fontColor);
+  const totalPages = doc.getPageCount();
+
+  let embeddedImage: any = null;
+  if (settings.type === 'image' && settings.imageDataUrl) {
+    if (settings.imageDataUrl.startsWith('data:image/png')) {
+      embeddedImage = await doc.embedPng(settings.imageDataUrl);
+    } else {
+      embeddedImage = await doc.embedJpg(settings.imageDataUrl);
+    }
+  }
+
+  for (let i = 0; i < totalPages; i++) {
+    // Check page selection
+    if (settings.pageSelection === 'custom' && settings.customPages) {
+      const allowed = parsePageRange(settings.customPages, totalPages);
+      if (!allowed.includes(i)) continue;
+    }
+
+    const page = doc.getPage(i);
+    const { width, height } = page.getSize();
+
+    if (settings.type === 'text') {
+      const text = settings.text || 'UIKEY AI 8770912734';
+      const textWidth = font.widthOfTextAtSize(text, settings.fontSize);
+      const textHeight = font.heightAtSize(settings.fontSize);
+
+      if (settings.tiled) {
+        // 3x3 tiled grid
+        const cols = 3;
+        const rows = 3;
+        for (let c = 0; c < cols; c++) {
+          for (let r = 0; r < rows; r++) {
+            const x = (width / cols) * (c + 0.5) - textWidth / 2;
+            const y = (height / rows) * (r + 0.5) - textHeight / 2;
+            page.drawText(text, {
+              x,
+              y,
+              size: settings.fontSize,
+              font,
+              color: rgb(color.r, color.g, color.b),
+              opacity: settings.opacity,
+              rotate: degrees(settings.rotation),
+            });
+          }
+        }
+      } else {
+        // Single placement
+        let x = width / 2 - textWidth / 2;
+        let y = height / 2 - textHeight / 2;
+
+        if (settings.position === 'top-left') {
+          x = 40;
+          y = height - 60;
+        } else if (settings.position === 'top-right') {
+          x = width - textWidth - 40;
+          y = height - 60;
+        } else if (settings.position === 'bottom-left') {
+          x = 40;
+          y = 40;
+        } else if (settings.position === 'bottom-right') {
+          x = width - textWidth - 40;
+          y = 40;
+        }
+
+        page.drawText(text, {
+          x,
+          y,
+          size: settings.fontSize,
+          font,
+          color: rgb(color.r, color.g, color.b),
+          opacity: settings.opacity,
+          rotate: degrees(settings.rotation),
+        });
+      }
+    } else if (embeddedImage) {
+      const imgWidth = embeddedImage.width * settings.imageScale;
+      const imgHeight = embeddedImage.height * settings.imageScale;
+      const x = width / 2 - imgWidth / 2;
+      const y = height / 2 - imgHeight / 2;
+
+      page.drawImage(embeddedImage, {
+        x,
+        y,
+        width: imgWidth,
+        height: imgHeight,
+        opacity: settings.opacity,
+        rotate: degrees(settings.rotation),
+      });
+    }
+  }
+
+  return await doc.save({ useObjectStreams: true });
+}
+
+// 5. PAGE NUMBERS
+export async function applyPageNumbers(
+  sourceBytes: Uint8Array,
+  settings: PageNumberSettings
+): Promise<Uint8Array> {
+  const doc = await PDFDocument.load(sourceBytes, { ignoreEncryption: true });
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  const color = hexToRgb(settings.color);
+  const totalPages = doc.getPageCount();
+
+  for (let i = 0; i < totalPages; i++) {
+    if (settings.pageRange === 'custom' && settings.customRange) {
+      const allowed = parsePageRange(settings.customRange, totalPages);
+      if (!allowed.includes(i)) continue;
+    }
+
+    const page = doc.getPage(i);
+    const { width, height } = page.getSize();
+    const currentNum = i + settings.startNumber;
+
+    let numText = `${currentNum}`;
+    if (settings.format === 'page-of-total') {
+      numText = `Page ${currentNum} of ${totalPages + settings.startNumber - 1}`;
+    }
+
+    const textWidth = font.widthOfTextAtSize(numText, settings.fontSize);
+    const margin = settings.margin || 30;
+
+    let x = width / 2 - textWidth / 2;
+    let y = margin;
+
+    // Determine position
+    if (settings.position.startsWith('top')) {
+      y = height - margin;
+    }
+    if (settings.position.endsWith('left')) {
+      x = margin;
+    } else if (settings.position.endsWith('right')) {
+      x = width - textWidth - margin;
+    }
+
+    page.drawText(numText, {
+      x,
+      y,
+      size: settings.fontSize,
+      font,
+      color: rgb(color.r, color.g, color.b),
+    });
+  }
+
+  return await doc.save({ useObjectStreams: true });
+}
+
+// 6. HEADER & FOOTER
+export async function applyHeaderFooter(
+  sourceBytes: Uint8Array,
+  settings: HeaderFooterSettings
+): Promise<Uint8Array> {
+  const doc = await PDFDocument.load(sourceBytes, { ignoreEncryption: true });
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  const color = hexToRgb(settings.color);
+  const totalPages = doc.getPageCount();
+  const margin = settings.margin || 30;
+
+  for (let i = 0; i < totalPages; i++) {
+    if (settings.pageRange === 'custom' && settings.customRange) {
+      const allowed = parsePageRange(settings.customRange, totalPages);
+      if (!allowed.includes(i)) continue;
+    }
+
+    const page = doc.getPage(i);
+    const { width, height } = page.getSize();
+    const topY = height - margin;
+    const botY = margin;
+
+    // Header Left, Center, Right
+    if (settings.headerLeft) {
+      page.drawText(settings.headerLeft, { x: margin, y: topY, size: settings.fontSize, font, color: rgb(color.r, color.g, color.b) });
+    }
+    if (settings.headerCenter) {
+      const w = font.widthOfTextAtSize(settings.headerCenter, settings.fontSize);
+      page.drawText(settings.headerCenter, { x: width / 2 - w / 2, y: topY, size: settings.fontSize, font, color: rgb(color.r, color.g, color.b) });
+    }
+    if (settings.headerRight) {
+      const w = font.widthOfTextAtSize(settings.headerRight, settings.fontSize);
+      page.drawText(settings.headerRight, { x: width - w - margin, y: topY, size: settings.fontSize, font, color: rgb(color.r, color.g, color.b) });
+    }
+
+    // Footer Left, Center, Right
+    if (settings.footerLeft) {
+      page.drawText(settings.footerLeft, { x: margin, y: botY, size: settings.fontSize, font, color: rgb(color.r, color.g, color.b) });
+    }
+    if (settings.footerCenter) {
+      const w = font.widthOfTextAtSize(settings.footerCenter, settings.fontSize);
+      page.drawText(settings.footerCenter, { x: width / 2 - w / 2, y: botY, size: settings.fontSize, font, color: rgb(color.r, color.g, color.b) });
+    }
+    if (settings.footerRight) {
+      const w = font.widthOfTextAtSize(settings.footerRight, settings.fontSize);
+      page.drawText(settings.footerRight, { x: width - w - margin, y: botY, size: settings.fontSize, font, color: rgb(color.r, color.g, color.b) });
+    }
+  }
+
+  return await doc.save({ useObjectStreams: true });
+}
+
+// 7. BATES NUMBERING (e.g. UIKEY-000001)
+export async function applyBatesNumbering(
+  sourceBytes: Uint8Array,
+  settings: BatesSettings
+): Promise<Uint8Array> {
+  const doc = await PDFDocument.load(sourceBytes, { ignoreEncryption: true });
+  const font = await doc.embedFont(StandardFonts.CourierBold);
+  const color = hexToRgb(settings.color);
+  const totalPages = doc.getPageCount();
+
+  for (let i = 0; i < totalPages; i++) {
+    const page = doc.getPage(i);
+    const { width, height } = page.getSize();
+    const num = settings.startNumber + i;
+    const padded = String(num).padStart(settings.digits, '0');
+    const batesText = `${settings.prefix}${padded}${settings.suffix}`;
+    const textWidth = font.widthOfTextAtSize(batesText, settings.fontSize);
+
+    let x = width - textWidth - 36;
+    let y = 30;
+
+    if (settings.position === 'top-right') {
+      x = width - textWidth - 36;
+      y = height - 40;
+    } else if (settings.position === 'top-left') {
+      x = 36;
+      y = height - 40;
+    } else if (settings.position === 'bottom-center') {
+      x = width / 2 - textWidth / 2;
+      y = 30;
+    }
+
+    page.drawText(batesText, {
+      x,
+      y,
+      size: settings.fontSize,
+      font,
+      color: rgb(color.r, color.g, color.b),
+    });
+  }
+
+  return await doc.save({ useObjectStreams: true });
+}
+
+// 8. CROP PDF
+export async function cropPdf(
+  sourceBytes: Uint8Array,
+  cropPercentages: { top: number; right: number; bottom: number; left: number }
+): Promise<Uint8Array> {
+  const doc = await PDFDocument.load(sourceBytes, { ignoreEncryption: true });
+  const totalPages = doc.getPageCount();
+
+  for (let i = 0; i < totalPages; i++) {
+    const page = doc.getPage(i);
+    const { width, height } = page.getSize();
+
+    const x = width * (cropPercentages.left / 100);
+    const y = height * (cropPercentages.bottom / 100);
+    const newWidth = width * (1 - (cropPercentages.left + cropPercentages.right) / 100);
+    const newHeight = height * (1 - (cropPercentages.top + cropPercentages.bottom) / 100);
+
+    if (newWidth > 10 && newHeight > 10) {
+      page.setCropBox(x, y, newWidth, newHeight);
+    }
+  }
+
+  return await doc.save({ useObjectStreams: true });
+}
+
+// 9. RESIZE PDF (A4, Letter, A3, Legal, etc.)
+export async function resizePdf(
+  sourceBytes: Uint8Array,
+  preset: 'A4' | 'Letter' | 'A3' | 'A5' | 'Legal'
+): Promise<Uint8Array> {
+  const sourceDoc = await PDFDocument.load(sourceBytes, { ignoreEncryption: true });
+  const targetDoc = await PDFDocument.create();
+
+  let targetSize: [number, number] = PageSizes.A4;
+  if (preset === 'Letter') targetSize = PageSizes.Letter;
+  else if (preset === 'A3') targetSize = PageSizes.A3;
+  else if (preset === 'A5') targetSize = PageSizes.A5;
+  else if (preset === 'Legal') targetSize = PageSizes.Legal;
+
+  const [tWidth, tHeight] = targetSize;
+  const totalPages = sourceDoc.getPageCount();
+
+  for (let i = 0; i < totalPages; i++) {
+    const [embedded] = await targetDoc.embedPdf(sourceDoc, [i]);
+    const newPage = targetDoc.addPage(targetSize);
+
+    // Scale to fit while maintaining aspect ratio
+    const scale = Math.min(tWidth / embedded.width, tHeight / embedded.height);
+    const scaledWidth = embedded.width * scale;
+    const scaledHeight = embedded.height * scale;
+    const x = (tWidth - scaledWidth) / 2;
+    const y = (tHeight - scaledHeight) / 2;
+
+    newPage.drawPage(embedded, {
+      x,
+      y,
+      xScale: scale,
+      yScale: scale,
+    });
+  }
+
+  return await targetDoc.save({ useObjectStreams: true });
+}
+
+// 10. REAL COMPRESS PDF
+export async function compressPdf(
+  sourceBytes: Uint8Array,
+  level: 'low' | 'medium' | 'high'
+): Promise<{ compressedBytes: Uint8Array; originalSize: number; compressedSize: number }> {
+  const originalSize = sourceBytes.length;
+
+  // Quality and resolution presets
+  let scale = 1.0;
+  let quality = 0.75;
+  if (level === 'low') {
+    scale = 1.2;
+    quality = 0.85;
+  } else if (level === 'high') {
+    scale = 0.8;
+    quality = 0.5;
+  }
+
+  try {
+    const pdfjsDoc = await loadPdfDocument(sourceBytes);
+    const newDoc = await PDFDocument.create();
+
+    for (let i = 1; i <= pdfjsDoc.numPages; i++) {
+      const page = await pdfjsDoc.getPage(i);
+      const viewport = page.getViewport({ scale });
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.floor(viewport.width);
+      canvas.height = Math.floor(viewport.height);
+      const ctx = canvas.getContext('2d');
+
+      if (ctx) {
+        await page.render({ canvasContext: ctx, viewport }).promise;
+        const dataUrl = canvas.toDataURL('image/jpeg', quality);
+        const embeddedImg = await newDoc.embedJpg(dataUrl);
+
+        const unscaledViewport = page.getViewport({ scale: 1.0 });
+        const newPage = newDoc.addPage([unscaledViewport.width, unscaledViewport.height]);
+        newPage.drawImage(embeddedImg, {
+          x: 0,
+          y: 0,
+          width: unscaledViewport.width,
+          height: unscaledViewport.height,
+        });
+      }
+    }
+
+    const compressedBytes = await newDoc.save({ useObjectStreams: true });
+    return {
+      compressedBytes,
+      originalSize,
+      compressedSize: compressedBytes.length,
+    };
+  } catch {
+    // Fallback if canvas rendering hits sandbox/worker issue: standard stream compression
+    const doc = await PDFDocument.load(sourceBytes, { ignoreEncryption: true });
+    const compressedBytes = await doc.save({ useObjectStreams: true });
+    return {
+      compressedBytes,
+      originalSize,
+      compressedSize: compressedBytes.length,
+    };
+  }
+}
+
+// 11. PDF TO WORD (Genuine .docx generation using docx npm package)
+export async function pdfToWordDocx(sourceBytes: Uint8Array): Promise<Blob> {
+  const pdfjsDoc = await loadPdfDocument(sourceBytes);
+  const sections: any[] = [];
+
+  for (let i = 1; i <= pdfjsDoc.numPages; i++) {
+    const page = await pdfjsDoc.getPage(i);
+    const textContent = await page.getTextContent();
+    const items = textContent.items as Array<{ str: string; transform: number[] }>;
+
+    const paragraphs: Paragraph[] = [
+      new Paragraph({
+        text: `--- Page ${i} ---`,
+        heading: HeadingLevel.HEADING_2,
+        spacing: { before: 200, after: 120 },
+      }),
+    ];
+
+    // Group items into logical lines based on Y coordinate
+    const lineMap = new Map<number, string[]>();
+    for (const item of items) {
+      if (!item.str.trim()) continue;
+      const y = Math.round(item.transform[5] / 4) * 4; // Tolerance bucket
+      const existing = lineMap.get(y) || [];
+      existing.push(item.str);
+      lineMap.set(y, existing);
+    }
+
+    // Sort top to bottom
+    const sortedY = Array.from(lineMap.keys()).sort((a, b) => b - a);
+
+    for (const y of sortedY) {
+      const lineText = lineMap.get(y)?.join(' ') || '';
+      paragraphs.push(
+        new Paragraph({
+          children: [new TextRun({ text: lineText, size: 22 })],
+          spacing: { after: 80 },
+        })
+      );
+    }
+
+    sections.push({
+      properties: {},
+      children: paragraphs,
+    });
+  }
+
+  const doc = new Document({ sections });
+  return await Packer.toBlob(doc);
+}
+
+// 12. IMAGE TO PDF (Converts JPG, PNG, WEBP images to PDF)
+export async function imagesToPdf(
+  imageFiles: { dataUrl: string; width: number; height: number; name: string }[],
+  pageSize: 'A4' | 'Letter' | 'Fit' = 'A4'
+): Promise<Uint8Array> {
+  const pdfDoc = await PDFDocument.create();
+
+  for (const imgItem of imageFiles) {
+    let embeddedImg: any;
+    if (imgItem.dataUrl.startsWith('data:image/png')) {
+      embeddedImg = await pdfDoc.embedPng(imgItem.dataUrl);
+    } else {
+      embeddedImg = await pdfDoc.embedJpg(imgItem.dataUrl);
+    }
+
+    let pageWidth = 595.28;
+    let pageHeight = 841.89;
+
+    if (pageSize === 'Letter') {
+      pageWidth = 612;
+      pageHeight = 792;
+    } else if (pageSize === 'Fit') {
+      pageWidth = embeddedImg.width;
+      pageHeight = embeddedImg.height;
+    }
+
+    const page = pdfDoc.addPage([pageWidth, pageHeight]);
+
+    // Calculate scale to fit page with 20pt margin
+    const margin = pageSize === 'Fit' ? 0 : 24;
+    const availableW = pageWidth - margin * 2;
+    const availableH = pageHeight - margin * 2;
+
+    const scale = Math.min(availableW / embeddedImg.width, availableH / embeddedImg.height, 1.0);
+    const renderW = embeddedImg.width * scale;
+    const renderH = embeddedImg.height * scale;
+    const x = (pageWidth - renderW) / 2;
+    const y = (pageHeight - renderH) / 2;
+
+    page.drawImage(embeddedImg, {
+      x,
+      y,
+      width: renderW,
+      height: renderH,
+    });
+  }
+
+  return await pdfDoc.save({ useObjectStreams: true });
+}
+
+// 13. PDF TO IMAGES (Exports each page as JPG or PNG and packages into ZIP if multi-page)
+export async function pdfToImagesZip(
+  sourceBytes: Uint8Array,
+  format: 'jpeg' | 'png' = 'jpeg',
+  quality = 0.9,
+  baseFileName = 'document'
+): Promise<{ blob: Blob; isZip: boolean; singleDataUrl?: string; filename: string }> {
+  const pdfjsDoc = await loadPdfDocument(sourceBytes);
+  const totalPages = pdfjsDoc.numPages;
+
+  if (totalPages === 1) {
+    const page = await pdfjsDoc.getPage(1);
+    const viewport = page.getViewport({ scale: 2.0 });
+    const canvas = document.createElement('canvas');
+    canvas.width = viewport.width;
+    canvas.height = viewport.height;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) throw new Error('Canvas context unavailable');
+
+    await page.render({ canvasContext: ctx, viewport }).promise;
+    const dataUrl = canvas.toDataURL(`image/${format}`, quality);
+    const byteString = atob(dataUrl.split(',')[1]);
+    const ab = new ArrayBuffer(byteString.length);
+    const ia = new Uint8Array(ab);
+    for (let i = 0; i < byteString.length; i++) {
+      ia[i] = byteString.charCodeAt(i);
+    }
+    const blob = new Blob([ab], { type: `image/${format}` });
+
+    return {
+      blob,
+      isZip: false,
+      singleDataUrl: dataUrl,
+      filename: `${baseFileName}_page_1.${format === 'jpeg' ? 'jpg' : 'png'}`,
+    };
+  }
+
+  // Multi-page -> ZIP
+  const zip = new JSZip();
+
+  for (let i = 1; i <= totalPages; i++) {
+    const page = await pdfjsDoc.getPage(i);
+    const viewport = page.getViewport({ scale: 1.8 });
+    const canvas = document.createElement('canvas');
+    canvas.width = viewport.width;
+    canvas.height = viewport.height;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) continue;
+
+    await page.render({ canvasContext: ctx, viewport }).promise;
+    const dataUrl = canvas.toDataURL(`image/${format}`, quality);
+    const base64Data = dataUrl.split(',')[1];
+    zip.file(`${baseFileName}_page_${i}.${format === 'jpeg' ? 'jpg' : 'png'}`, base64Data, { base64: true });
+  }
+
+  const zipBlob = await zip.generateAsync({ type: 'blob' });
+  return {
+    blob: zipBlob,
+    isZip: true,
+    filename: `${baseFileName}_images.zip`,
+  };
+}
+
+// 14. BAKE EDITOR ANNOTATIONS ONTO PDF
+export async function bakeAnnotationsOnPdf(
+  sourceBytes: Uint8Array,
+  annotations: AnyAnnotation[]
+): Promise<Uint8Array> {
+  const doc = await PDFDocument.load(sourceBytes, { ignoreEncryption: true });
+  const helveticaFont = await doc.embedFont(StandardFonts.Helvetica);
+  const helveticaBold = await doc.embedFont(StandardFonts.HelveticaBold);
+
+  const pagesMap = new Map<number, AnyAnnotation[]>();
+  for (const ann of annotations) {
+    const list = pagesMap.get(ann.pageNumber) || [];
+    list.push(ann);
+    pagesMap.set(ann.pageNumber, list);
+  }
+
+  for (const [pageNum, pageAnns] of pagesMap.entries()) {
+    if (pageNum > doc.getPageCount() || pageNum < 1) continue;
+    const page = doc.getPage(pageNum - 1);
+    const { height: pageH } = page.getSize();
+
+    for (const ann of pageAnns) {
+      const c = hexToRgb(ann.color || '#000000');
+
+      if (ann.type === 'text') {
+        const textAnn = ann as any;
+        const font = textAnn.fontWeight === 'bold' ? helveticaBold : helveticaFont;
+        // Convert screen Y (top-down) to PDF Y (bottom-up)
+        const pdfY = pageH - ann.y - (textAnn.fontSize || 16);
+
+        // Optional background color box
+        if (textAnn.backgroundColor && textAnn.backgroundColor !== 'transparent') {
+          const bgRgb = hexToRgb(textAnn.backgroundColor);
+          const textWidth = font.widthOfTextAtSize(textAnn.text, textAnn.fontSize || 16);
+          page.drawRectangle({
+            x: ann.x - 2,
+            y: pdfY - 2,
+            width: textWidth + 4,
+            height: (textAnn.fontSize || 16) + 4,
+            color: rgb(bgRgb.r, bgRgb.g, bgRgb.b),
+            opacity: ann.opacity,
+          });
+        }
+
+        page.drawText(textAnn.text || '', {
+          x: ann.x,
+          y: pdfY,
+          size: textAnn.fontSize || 16,
+          font,
+          color: rgb(c.r, c.g, c.b),
+          opacity: ann.opacity,
+        });
+      } else if (ann.type === 'rect') {
+        const shape = ann as any;
+        const borderRgb = hexToRgb(shape.strokeColor || '#D4AF37');
+        const pdfY = pageH - ann.y - ann.height;
+
+        page.drawRectangle({
+          x: ann.x,
+          y: pdfY,
+          width: ann.width,
+          height: ann.height,
+          borderColor: rgb(borderRgb.r, borderRgb.g, borderRgb.b),
+          borderWidth: shape.strokeWidth || 2,
+          opacity: ann.opacity,
+          ...(shape.fillColor && shape.fillColor !== 'transparent'
+            ? { color: rgb(hexToRgb(shape.fillColor).r, hexToRgb(shape.fillColor).g, hexToRgb(shape.fillColor).b) }
+            : {}),
+        });
+      } else if (ann.type === 'circle') {
+        const shape = ann as any;
+        const borderRgb = hexToRgb(shape.strokeColor || '#D4AF37');
+        const radius = Math.min(ann.width, ann.height) / 2;
+        const pdfY = pageH - ann.y - radius;
+
+        page.drawCircle({
+          x: ann.x + radius,
+          y: pdfY,
+          size: radius,
+          borderColor: rgb(borderRgb.r, borderRgb.g, borderRgb.b),
+          borderWidth: shape.strokeWidth || 2,
+          opacity: ann.opacity,
+        });
+      } else if (ann.type === 'draw' || ann.type === 'highlight') {
+        const drawAnn = ann as any;
+        if (drawAnn.points && drawAnn.points.length > 1) {
+          const isHighlighter = ann.type === 'highlight';
+          const strokeColor = hexToRgb(ann.color || (isHighlighter ? '#FFFF00' : '#D4AF37'));
+
+          for (let p = 0; p < drawAnn.points.length - 1; p++) {
+            const p1 = drawAnn.points[p];
+            const p2 = drawAnn.points[p + 1];
+            page.drawLine({
+              start: { x: p1.x, y: pageH - p1.y },
+              end: { x: p2.x, y: pageH - p2.y },
+              thickness: drawAnn.strokeWidth || (isHighlighter ? 12 : 3),
+              color: rgb(strokeColor.r, strokeColor.g, strokeColor.b),
+              opacity: isHighlighter ? 0.35 : ann.opacity,
+            });
+          }
+        }
+      } else if (ann.type === 'image' || ann.type === 'signature') {
+        const imgAnn = ann as any;
+        if (imgAnn.dataUrl) {
+          let embedded: any;
+          if (imgAnn.dataUrl.startsWith('data:image/png')) {
+            embedded = await doc.embedPng(imgAnn.dataUrl);
+          } else {
+            embedded = await doc.embedJpg(imgAnn.dataUrl);
+          }
+
+          const pdfY = pageH - ann.y - ann.height;
+          page.drawImage(embedded, {
+            x: ann.x,
+            y: pdfY,
+            width: ann.width,
+            height: ann.height,
+            opacity: ann.opacity,
+          });
+        }
+      }
+    }
+  }
+
+  return await doc.save({ useObjectStreams: true });
+}
+
+// 15. REDACT PDF (Bakes opaque cover boxes directly into page)
+export async function redactPdf(
+  sourceBytes: Uint8Array,
+  redactions: { pageNumber: number; x: number; y: number; width: number; height: number; color: 'black' | 'white' }[]
+): Promise<Uint8Array> {
+  const doc = await PDFDocument.load(sourceBytes, { ignoreEncryption: true });
+
+  for (const r of redactions) {
+    if (r.pageNumber > doc.getPageCount() || r.pageNumber < 1) continue;
+    const page = doc.getPage(r.pageNumber - 1);
+    const { height } = page.getSize();
+    const pdfY = height - r.y - r.height;
+    const boxColor = r.color === 'white' ? rgb(1, 1, 1) : rgb(0, 0, 0);
+
+    page.drawRectangle({
+      x: r.x,
+      y: pdfY,
+      width: r.width,
+      height: r.height,
+      color: boxColor,
+      opacity: 1,
+    });
+  }
+
+  return await doc.save({ useObjectStreams: true });
+}
+
+// 16. PDF METADATA
+export interface PdfMetadata {
+  title?: string;
+  author?: string;
+  subject?: string;
+  keywords?: string[];
+  creator?: string;
+  producer?: string;
+}
+
+export async function readPdfMetadata(sourceBytes: Uint8Array): Promise<PdfMetadata> {
+  const doc = await PDFDocument.load(sourceBytes, { ignoreEncryption: true });
+  return {
+    title: doc.getTitle() || '',
+    author: doc.getAuthor() || '',
+    subject: doc.getSubject() || '',
+    keywords: doc.getKeywords() ? doc.getKeywords()!.split(',') : [],
+    creator: doc.getCreator() || '',
+    producer: doc.getProducer() || '',
+  };
+}
+
+export async function updatePdfMetadata(
+  sourceBytes: Uint8Array,
+  meta: PdfMetadata
+): Promise<Uint8Array> {
+  const doc = await PDFDocument.load(sourceBytes, { ignoreEncryption: true });
+  if (meta.title !== undefined) doc.setTitle(meta.title);
+  if (meta.author !== undefined) doc.setAuthor(meta.author);
+  if (meta.subject !== undefined) doc.setSubject(meta.subject);
+  if (meta.keywords !== undefined) doc.setKeywords(meta.keywords);
+  if (meta.creator !== undefined) doc.setCreator(meta.creator);
+  if (meta.producer !== undefined) doc.setProducer(meta.producer);
+  return await doc.save({ useObjectStreams: true });
+}
+
+// Helper: parse page range strings like "1-3, 5, 8-10" into 0-indexed page numbers
+function parsePageRange(rangeStr: string, totalPages: number): number[] {
+  const pages = new Set<number>();
+  const parts = rangeStr.split(',').map((s) => s.trim()).filter(Boolean);
+
+  for (const part of parts) {
+    if (part.includes('-')) {
+      const [startStr, endStr] = part.split('-');
+      const start = parseInt(startStr, 10) - 1;
+      const end = parseInt(endStr, 10) - 1;
+      if (!isNaN(start) && !isNaN(end)) {
+        for (let i = Math.max(0, start); i <= Math.min(totalPages - 1, end); i++) {
+          pages.add(i);
+        }
+      }
+    } else {
+      const p = parseInt(part, 10) - 1;
+      if (!isNaN(p) && p >= 0 && p < totalPages) {
+        pages.add(p);
+      }
+    }
+  }
+
+  return Array.from(pages);
+}

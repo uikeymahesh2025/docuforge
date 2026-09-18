@@ -1,0 +1,59 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --brand-gold: #D4AF37;
+  }
+
+  body {
+    @apply bg-[#09090C] text-zinc-100 selection:bg-[#D4AF37]/30 selection:text-white;
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  }
+
+  /* Custom subtle scrollbars */
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  ::-webkit-scrollbar-track {
+    background: #0d0d12;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: #272732;
+    border-radius: 4px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: #3e3e4f;
+  }
+}
+
+/* Glassmorphism & Gold accents */
+.gold-gradient-text {
+  background: linear-gradient(135deg, #FFF4CC 0%, #D4AF37 50%, #AA7C11 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.gold-border-glow {
+  box-shadow: 0 0 15px -3px rgba(212, 175, 55, 0.2);
+  border-color: rgba(212, 175, 55, 0.4);
+}
+
+.dark .canvas-container-bg {
+  background-color: #15151c;
+  background-image: radial-gradient(#262634 1px, transparent 1px);
+  background-size: 20px 20px;
+}
+
+.light .canvas-container-bg {
+  background-color: #f1f3f7;
+  background-image: radial-gradient(#d1d5db 1px, transparent 1px);
+  background-size: 20px 20px;
+}
+
+/* Signature cursive font */
+.font-signature {
+  font-family: 'Caveat', cursive;
+}
