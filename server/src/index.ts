@@ -87,7 +87,10 @@ app.post('/api/convert/pdf-to-word', upload.single('file'), async (req: Request,
 
   try {
     const pythonExe = getPythonPath();
-    const scriptPath = getPythonScriptPath('pdf_to_docx.py');
+    let scriptPath = getPythonScriptPath('convert.py');
+    if (!fs.existsSync(scriptPath)) {
+      scriptPath = getPythonScriptPath('pdf_to_docx.py');
+    }
 
     await withTempFiles('pdf2docx', async (tempDir) => {
       const inputPdfPath = path.join(tempDir, 'input.pdf');
