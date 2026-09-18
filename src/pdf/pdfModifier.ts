@@ -520,12 +520,19 @@ export async function compressPdf(
     try {
       const formData = new FormData();
       formData.append('file', new Blob([sourceBytes], { type: 'application/pdf' }), 'document.pdf');
-      const response = await fetch('http://localhost:4000/api/pdf/compress', {
+      let response = await fetch('/api/pdf/compress', {
         method: 'POST',
         body: formData,
-      });
+      }).catch(() => null);
 
-      if (response.ok) {
+      if (!response || !response.ok) {
+        response = await fetch('http://localhost:4000/api/pdf/compress', {
+          method: 'POST',
+          body: formData,
+        }).catch(() => null);
+      }
+
+      if (response && response.ok) {
         const buf = await response.arrayBuffer();
         const compressedBytes = new Uint8Array(buf);
         return {
@@ -598,29 +605,37 @@ export async function compressPdf(
 
 // 11. PDF TO WORD (Layout-Aware conversion via backend pdf2docx with enhanced browser fallback)
 export async function pdfToWordDocx(sourceBytes: Uint8Array): Promise<Blob> {
-  // 1. Try Backend Layout-Aware Engine (pdf2docx) first
+  // 1. Try Backend High-Fidelity Layout-Aware Engine (pdf2docx + PyMuPDF) first
   try {
     const formData = new FormData();
     formData.append('file', new Blob([sourceBytes], { type: 'application/pdf' }), 'document.pdf');
 
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 45000); // 45s timeout
+    const timeoutId = setTimeout(() => controller.abort(), 60000); // 60s timeout
 
-    const resp = await fetch('http://localhost:4000/api/convert/pdf-to-word', {
+    let resp = await fetch('/api/convert/pdf-to-word', {
       method: 'POST',
       body: formData,
       signal: controller.signal,
-    });
+    }).catch(() => null);
+
+    if (!resp || !resp.ok) {
+      resp = await fetch('http://localhost:4000/api/convert/pdf-to-word', {
+        method: 'POST',
+        body: formData,
+        signal: controller.signal,
+      }).catch(() => null);
+    }
     clearTimeout(timeoutId);
 
-    if (resp.ok) {
+    if (resp && resp.ok) {
       const blob = await resp.blob();
       if (blob.size > 100) {
         return blob;
       }
     }
-  } catch {
-    console.info('Backend layout-aware conversion unreachable or timed out; falling back to client-side docx engine.');
+  } catch (backendErr) {
+    console.warn('Backend layout-aware conversion unreachable; falling back to client-side docx engine:', backendErr);
   }
 
   // 2. Client-side Enhanced DOCX Engine
