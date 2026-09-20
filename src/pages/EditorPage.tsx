@@ -7,6 +7,7 @@ import {
   ZoomIn,
   ZoomOut,
   Maximize2,
+  FoldHorizontal,
   ChevronLeft,
   ChevronRight,
   ChevronsLeft,
@@ -16,6 +17,13 @@ import {
   Search,
   FileText,
   X,
+  ChevronUp,
+  ChevronDown,
+  Pencil,
+  Type,
+  Highlighter,
+  Square,
+  Trash2,
 } from 'lucide-react';
 import { useEditorStore } from '../stores/useEditorStore';
 import { useToastStore } from '../stores/useToastStore';
@@ -28,8 +36,21 @@ import { FileUploader } from '../components/tools/FileUploader';
 import { ProcessingModal } from '../components/tools/ProcessingModal';
 import { ResultModal } from '../components/tools/ResultModal';
 import { bakeAnnotationsOnPdf } from '../pdf/pdfModifier';
-import { searchPdf, loadPdfDocument } from '../pdf/pdfManager';
+import { searchPdf, loadPdfDocument, findPdfSearchMatches } from '../pdf/pdfManager';
 import { sanitizeFilename } from '../utils/downloadHelpers';
+
+const COLOR_PRESETS = [
+  '#000000',
+  '#FFFFFF',
+  '#D4AF37', // UIKEY AI Gold
+  '#EF4444', // Red
+  '#3B82F6', // Blue
+  '#10B981', // Green
+  '#F59E0B', // Amber
+  '#8B5CF6', // Purple
+  '#EC4899', // Pink
+  '#FFFF00', // Yellow
+];
 
 export const EditorPage: React.FC = () => {
   const {
@@ -45,14 +66,39 @@ export const EditorPage: React.FC = () => {
     imageReplacements,
     historyIndex,
     history,
+    strokeColor,
+    textColor,
+    strokeWidth,
+    fontSize,
+    setStrokeWidth,
+    setFontSize,
+    setColor,
+    setStrokeColor,
+    setTextColor,
+    updateAnnotation,
     setPdf,
     setCurrentPage,
     setScale,
+    fitToWidth,
+    fitToPage,
     undo,
     redo,
     addAnnotation,
     selectedAnnotationId,
     deleteAnnotation,
+    isSearchOpen,
+    setIsSearchOpen,
+    searchQuery,
+    setSearchQuery,
+    isSearching,
+    setIsSearching,
+    searchMatches,
+    setSearchMatches,
+    activeSearchMatchIndex,
+    setActiveSearchMatchIndex,
+    nextSearchMatch,
+    prevSearchMatch,
+    clearSearch,
   } = useEditorStore();
 
   const addToast = useToastStore((state) => state.addToast);
@@ -65,11 +111,28 @@ export const EditorPage: React.FC = () => {
   const [processingStatus, setProcessingStatus] = useState('Baking annotations...');
   const [exportResult, setExportResult] = useState<Uint8Array | null>(null);
 
-  // Search State
-  const [isSearchOpen, setIsSearchOpen] = useState(false);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [searchResults, setSearchResults] = useState<{ pageNumber: number; count: number; snippets: string[] }[]>([]);
-  const [isSearching, setIsSearching] = useState(false);
+  // Active object & Quick Toolbar helpers
+  const selectedAnn = annotations.find((a) => a.id === selectedAnnotationId);
+  const showQuickBar =
+    Boolean(selectedAnn) ||
+    ['draw', 'highlight', 'text', 'rect', 'circle', 'line', 'arrow'].includes(activeTool);
+
+  const activeDisplayColor =
+    (selectedAnn as any)?.color ||
+    (selectedAnn as any)?.strokeColor ||
+    (activeTool === 'text' ? textColor : strokeColor);
+
+  const handleQuickColorSelect = (col: string) => {
+    setColor(col);
+    setStrokeColor(col);
+    setTextColor(col);
+    if (selectedAnn) {
+      updateAnnotation(selectedAnn.id, {
+        color: col,
+        strokeColor: col,
+      } as any);
+    }
+  };
 
   // Keyboard Shortcuts (Ctrl+Z, Ctrl+Shift+Z, Delete, +, -, Ctrl+F, Ctrl+S)
   useEffect(() => {
@@ -91,6 +154,9 @@ export const EditorPage: React.FC = () => {
       } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f') {
         e.preventDefault();
         setIsSearchOpen(true);
+      } else if (e.key === 'Escape' && isSearchOpen) {
+        e.preventDefault();
+        setIsSearchOpen(false);
       } else if (e.key === '+' || e.key === '=') {
         if (!(e.target instanceof HTMLInputElement)) {
           setScale((s) => s + 0.15);
@@ -99,12 +165,15 @@ export const EditorPage: React.FC = () => {
         if (!(e.target instanceof HTMLInputElement)) {
           setScale((s) => s - 0.15);
         }
+      } else if ((e.ctrlKey || e.metaKey) && e.key === '0') {
+        e.preventDefault();
+        setScale(1.0);
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [undo, redo, selectedAnnotationId, deleteAnnotation, setScale]);
+  }, [undo, redo, selectedAnnotationId, deleteAnnotation, setScale, isSearchOpen, setIsSearchOpen]);
 
   // Load uploaded PDF
   const handleFileSelected = async (files: File[]) => {
@@ -129,23 +198,51 @@ export const EditorPage: React.FC = () => {
     }
   };
 
-  // Perform search
-  const handlePerformSearch = async () => {
-    if (!pdfBytes || !searchQuery.trim()) return;
+  // Perform full-document search with exact highlight coordinates
+  const handlePerformSearch = async (queryOverride?: string) => {
+    const q = (queryOverride !== undefined ? queryOverride : searchQuery).trim();
+    if (!pdfBytes || !q) {
+      clearSearch();
+      return;
+    }
     setIsSearching(true);
     try {
       const doc = await loadPdfDocument(pdfBytes);
-      const res = await searchPdf(doc, searchQuery);
-      setSearchResults(res);
-      if (res.length === 0) {
-        addToast({ type: 'info', title: 'No matches found', message: `"${searchQuery}" not found in PDF.` });
+      const matches = await findPdfSearchMatches(doc, q, rotation);
+      setSearchMatches(matches);
+      if (matches.length === 0) {
+        addToast({
+          type: 'info',
+          title: 'No matches found',
+          message: `"${q}" was not found in this PDF.`,
+        });
+      } else {
+        // If current page doesn't have matches, switch to page with first match
+        const hasMatchOnCurrent = matches.some((m) => m.pageNumber === currentPage);
+        if (!hasMatchOnCurrent) {
+          setCurrentPage(matches[0].pageNumber);
+        }
       }
     } catch (err) {
-      console.error(err);
+      console.error('PDF search error:', err);
     } finally {
       setIsSearching(false);
     }
   };
+
+  // Debounced live search as user types in the search box
+  useEffect(() => {
+    if (!isSearchOpen) return;
+    const q = searchQuery.trim();
+    if (!q) {
+      setSearchMatches([]);
+      return;
+    }
+    const timer = setTimeout(() => {
+      handlePerformSearch(q);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchQuery, isSearchOpen, pdfBytes, rotation]);
 
   // Export PDF with baked annotations
   const handleExport = async () => {
@@ -322,11 +419,31 @@ export const EditorPage: React.FC = () => {
             </button>
             <button
               onClick={() => setScale(1.0)}
-              className="p-1.5 hover:text-white transition border-l border-white/5"
-              title="Reset Zoom (100%)"
+              className={`px-1.5 py-0.5 hover:text-white transition border-l border-white/5 font-mono text-[10px] rounded ${
+                scale === 1.0 ? 'text-brand-gold font-bold bg-white/5' : ''
+              }`}
+              title="100% Zoom (Ctrl+0)"
             >
-              <Maximize2 className="w-3.5 h-3.5" />
+              100%
             </button>
+            {fitToWidth && (
+              <button
+                onClick={fitToWidth}
+                className="p-1.5 hover:text-white hover:bg-white/5 rounded transition border-l border-white/5"
+                title="Fit to Width"
+              >
+                <FoldHorizontal className="w-3.5 h-3.5" />
+              </button>
+            )}
+            {fitToPage && (
+              <button
+                onClick={fitToPage}
+                className="p-1.5 hover:text-white hover:bg-white/5 rounded transition"
+                title="Fit Page to Screen"
+              >
+                <Maximize2 className="w-3.5 h-3.5" />
+              </button>
+            )}
           </div>
         </div>
 
@@ -415,6 +532,125 @@ export const EditorPage: React.FC = () => {
             </div>
           )}
 
+          {/* Quick Color & Tool Options Toolbar */}
+          {showQuickBar && (
+            <div className="bg-[#121218]/95 backdrop-blur-md border-b border-white/10 px-3 sm:px-4 py-2 flex flex-wrap items-center justify-between gap-2.5 text-xs text-zinc-300 z-20 shadow-md animate-fadeIn">
+              {/* Left: Active Tool/Object Indicator + Color Swatches */}
+              <div className="flex items-center flex-wrap gap-2 sm:gap-3">
+                <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white/5 border border-white/10 text-white font-medium">
+                  {activeTool === 'draw' && <Pencil className="w-3.5 h-3.5 text-brand-gold" />}
+                  {activeTool === 'highlight' && <Highlighter className="w-3.5 h-3.5 text-brand-gold" />}
+                  {activeTool === 'text' && <Type className="w-3.5 h-3.5 text-brand-gold" />}
+                  {['rect', 'circle', 'line', 'arrow'].includes(activeTool) && <Square className="w-3.5 h-3.5 text-brand-gold" />}
+                  {selectedAnn && !['draw', 'highlight', 'text', 'rect', 'circle', 'line', 'arrow'].includes(activeTool) && (
+                    <Sliders className="w-3.5 h-3.5 text-brand-gold" />
+                  )}
+                  <span className="capitalize">
+                    {selectedAnn ? `Selected ${selectedAnn.type}` : activeTool}
+                  </span>
+                </div>
+
+                <div className="h-4 w-px bg-white/10 hidden sm:block" />
+
+                {/* Color Swatches */}
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  {COLOR_PRESETS.map((col) => {
+                    const isSelected = activeDisplayColor.toLowerCase() === col.toLowerCase();
+                    return (
+                      <button
+                        key={col}
+                        type="button"
+                        onClick={() => handleQuickColorSelect(col)}
+                        style={{ backgroundColor: col }}
+                        className={`w-5 h-5 rounded-full border transition-all ${
+                          isSelected
+                            ? 'border-brand-gold scale-125 shadow-gold-glow ring-2 ring-brand-gold/50'
+                            : 'border-white/20 hover:scale-110 hover:border-white/60'
+                        }`}
+                        title={col}
+                      />
+                    );
+                  })}
+
+                  {/* Native Custom Color Picker */}
+                  <div className="flex items-center gap-1 pl-1">
+                    <input
+                      type="color"
+                      value={activeDisplayColor}
+                      onChange={(e) => handleQuickColorSelect(e.target.value)}
+                      className="w-6 h-6 rounded-md cursor-pointer bg-transparent border border-white/20 p-0 hover:border-brand-gold transition"
+                      title="Pick custom color"
+                    />
+                    <span className="font-mono text-[10px] text-zinc-400 uppercase hidden md:inline">
+                      {activeDisplayColor}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Right: Contextual Controls (Stroke Size / Font Size / Delete) */}
+              <div className="flex items-center gap-2.5">
+                {(activeTool === 'text' || selectedAnn?.type === 'text') && (
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-zinc-400 text-[11px]">Size:</span>
+                    <input
+                      type="number"
+                      min="10"
+                      max="72"
+                      value={selectedAnn && 'fontSize' in selectedAnn ? (selectedAnn as any).fontSize : fontSize}
+                      onChange={(e) => {
+                        const val = parseInt(e.target.value, 10);
+                        if (selectedAnn) {
+                          updateAnnotation(selectedAnn.id, { fontSize: val } as any);
+                        } else {
+                          setFontSize(val);
+                        }
+                      }}
+                      className="w-14 px-2 py-0.5 rounded bg-zinc-900 border border-white/10 text-center text-white text-xs"
+                    />
+                    <span className="text-zinc-500 text-[11px]">px</span>
+                  </div>
+                )}
+
+                {(['draw', 'highlight', 'rect', 'circle', 'line', 'arrow'].includes(activeTool) ||
+                  (selectedAnn && ['draw', 'highlight', 'rect', 'circle', 'line', 'arrow'].includes(selectedAnn.type))) && (
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-zinc-400 text-[11px]">Stroke:</span>
+                    <input
+                      type="range"
+                      min="1"
+                      max="30"
+                      value={selectedAnn && 'strokeWidth' in selectedAnn ? (selectedAnn as any).strokeWidth : strokeWidth}
+                      onChange={(e) => {
+                        const val = parseInt(e.target.value, 10);
+                        if (selectedAnn) {
+                          updateAnnotation(selectedAnn.id, { strokeWidth: val } as any);
+                        } else {
+                          setStrokeWidth(val);
+                        }
+                      }}
+                      className="w-16 sm:w-20 accent-brand-gold cursor-pointer"
+                    />
+                    <span className="text-zinc-400 text-[10px] font-mono w-4">
+                      {selectedAnn && 'strokeWidth' in selectedAnn ? (selectedAnn as any).strokeWidth : strokeWidth}
+                    </span>
+                  </div>
+                )}
+
+                {selectedAnn && (
+                  <button
+                    onClick={() => deleteAnnotation(selectedAnn.id)}
+                    className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/20 text-xs transition active:scale-95"
+                    title="Delete selected item"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span className="hidden sm:inline">Delete</span>
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+
           <PdfCanvasViewer />
         </div>
 
@@ -427,55 +663,129 @@ export const EditorPage: React.FC = () => {
         )}
 
         {/* PDF Search Drawer */}
+        {/* PDF Search Floating Bar / Drawer */}
         {isSearchOpen && (
-          <div className="absolute top-3 right-3 sm:right-6 bg-[#121218] border border-white/10 rounded-2xl p-4 shadow-2xl z-40 w-80 animate-fadeIn">
-            <div className="flex items-center justify-between pb-2 border-b border-white/10 mb-3">
+          <div className="absolute top-3 right-3 sm:right-6 bg-[#121218]/95 backdrop-blur-md border border-white/10 rounded-2xl p-3.5 shadow-2xl z-40 w-80 sm:w-96 animate-fadeIn">
+            <div className="flex items-center justify-between pb-2 border-b border-white/10 mb-2.5">
               <span className="text-xs font-bold text-white flex items-center gap-1.5">
                 <Search className="w-3.5 h-3.5 text-brand-gold" />
                 <span>Search in PDF</span>
               </span>
-              <button
-                onClick={() => setIsSearchOpen(false)}
-                className="text-zinc-500 hover:text-white p-1"
-              >
-                <X className="w-4 h-4" />
-              </button>
+
+              <div className="flex items-center gap-1.5">
+                {searchMatches.length > 0 && (
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500/15 text-brand-gold border border-amber-500/30">
+                    {activeSearchMatchIndex + 1} of {searchMatches.length}
+                  </span>
+                )}
+                {!isSearching && searchQuery.trim() && searchMatches.length === 0 && (
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-500/15 text-rose-400 border border-rose-500/30">
+                    0 matches
+                  </span>
+                )}
+                {isSearching && (
+                  <span className="text-[10px] text-zinc-400 animate-pulse">
+                    Searching...
+                  </span>
+                )}
+                <button
+                  onClick={() => setIsSearchOpen(false)}
+                  className="text-zinc-500 hover:text-white p-1 rounded-lg hover:bg-white/5 transition"
+                  title="Close Search (Esc)"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
             </div>
 
-            <div className="flex gap-2 mb-3">
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && handlePerformSearch()}
-                placeholder="Find text..."
-                className="flex-1 px-3 py-1.5 rounded-xl bg-zinc-900 border border-white/10 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-brand-gold"
-              />
+            {/* Search Input & Action Controls */}
+            <div className="flex items-center gap-1.5 mb-2.5">
+              <div className="relative flex-1">
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      if (e.shiftKey) prevSearchMatch();
+                      else if (searchMatches.length > 0) nextSearchMatch();
+                      else handlePerformSearch();
+                    } else if (e.key === 'Escape') {
+                      setIsSearchOpen(false);
+                    }
+                  }}
+                  autoFocus
+                  placeholder="Find word or phrase..."
+                  className="w-full pl-3 pr-7 py-1.5 rounded-xl bg-zinc-900 border border-white/10 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-brand-gold"
+                />
+                {searchQuery && (
+                  <button
+                    onClick={clearSearch}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300 p-0.5"
+                    title="Clear"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                )}
+              </div>
+
+              {/* Prev / Next navigation buttons */}
               <button
-                onClick={handlePerformSearch}
-                disabled={isSearching}
-                className="px-3 py-1.5 rounded-xl bg-brand-gold text-black font-semibold text-xs hover:brightness-110 transition"
+                onClick={prevSearchMatch}
+                disabled={searchMatches.length === 0}
+                className="p-1.5 rounded-xl bg-zinc-900 border border-white/10 text-zinc-300 hover:text-white hover:border-amber-500/40 disabled:opacity-40 disabled:hover:border-white/10 transition"
+                title="Previous match (Shift+Enter)"
+              >
+                <ChevronUp className="w-4 h-4" />
+              </button>
+              <button
+                onClick={nextSearchMatch}
+                disabled={searchMatches.length === 0}
+                className="p-1.5 rounded-xl bg-zinc-900 border border-white/10 text-zinc-300 hover:text-white hover:border-amber-500/40 disabled:opacity-40 disabled:hover:border-white/10 transition"
+                title="Next match (Enter)"
+              >
+                <ChevronDown className="w-4 h-4" />
+              </button>
+              <button
+                onClick={() => handlePerformSearch()}
+                disabled={isSearching || !searchQuery.trim()}
+                className="px-2.5 py-1.5 rounded-xl bg-brand-gold text-black font-semibold text-xs hover:brightness-110 disabled:opacity-50 transition shrink-0"
+                title="Find in document"
               >
                 {isSearching ? '...' : 'Find'}
               </button>
             </div>
 
-            {/* Results */}
-            <div className="max-h-48 overflow-y-auto space-y-2">
-              {searchResults.map((res) => (
-                <button
-                  key={res.pageNumber}
-                  onClick={() => setCurrentPage(res.pageNumber)}
-                  className="w-full text-left p-2 rounded-lg bg-zinc-900/60 hover:bg-white/5 border border-white/5 transition"
-                >
-                  <div className="flex justify-between text-[11px] font-semibold text-brand-gold">
-                    <span>Page {res.pageNumber}</span>
-                    <span>{res.count} {res.count === 1 ? 'match' : 'matches'}</span>
-                  </div>
-                  <p className="text-[10px] text-zinc-400 mt-1 line-clamp-2">{res.snippets[0]}</p>
-                </button>
-              ))}
-            </div>
+            {/* Results Snippets List */}
+            {searchMatches.length > 0 && (
+              <div className="max-h-48 overflow-y-auto space-y-1.5 pt-1 border-t border-white/5 no-scrollbar">
+                {searchMatches.map((m) => {
+                  const isActive = activeSearchMatchIndex === m.globalIndex;
+                  return (
+                    <button
+                      key={m.id}
+                      onClick={() => {
+                        setActiveSearchMatchIndex(m.globalIndex);
+                        setCurrentPage(m.pageNumber);
+                      }}
+                      className={`w-full text-left p-2 rounded-xl transition text-xs border ${
+                        isActive
+                          ? 'bg-amber-500/15 border-brand-gold/60 text-white'
+                          : 'bg-zinc-900/50 hover:bg-white/5 border-white/5 text-zinc-300'
+                      }`}
+                    >
+                      <div className="flex justify-between items-center text-[10px] font-semibold text-brand-gold mb-0.5">
+                        <span>Page {m.pageNumber}</span>
+                        <span className="text-[9px] text-zinc-500 font-mono">#{m.globalIndex + 1}</span>
+                      </div>
+                      <p className="text-[11px] text-zinc-300 line-clamp-1">
+                        {m.snippet}
+                      </p>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
           </div>
         )}
       </div>

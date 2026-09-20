@@ -9,6 +9,9 @@ interface ResultModalProps {
   onClose: () => void;
   resultData: Uint8Array | Blob | null;
   defaultFileName: string;
+  title?: string;
+  subtitle?: string;
+  previewUrl?: string;
   originalSize?: number;
   newSize?: number;
   isZip?: boolean;
@@ -20,6 +23,9 @@ export const ResultModal: React.FC<ResultModalProps> = ({
   onClose,
   resultData,
   defaultFileName,
+  title,
+  subtitle,
+  previewUrl,
   originalSize,
   newSize,
   isZip = false,
@@ -28,6 +34,13 @@ export const ResultModal: React.FC<ResultModalProps> = ({
   const [fileName, setFileName] = useState(defaultFileName);
   const navigate = useNavigate();
   const setPdf = useEditorStore((state) => state.setPdf);
+
+  // Synchronize fileName state whenever defaultFileName or isOpen changes
+  React.useEffect(() => {
+    if (defaultFileName) {
+      setFileName(defaultFileName);
+    }
+  }, [defaultFileName, isOpen]);
 
   if (!isOpen || !resultData) return null;
 
@@ -40,9 +53,17 @@ export const ResultModal: React.FC<ResultModalProps> = ({
     }
 
     let finalName = fileName.trim();
-    const ext = isZip ? '.zip' : fileName.endsWith('.docx') ? '.docx' : '.pdf';
-    if (!finalName.toLowerCase().endsWith(ext)) {
-      finalName += ext;
+    // Intelligently preserve existing extension or derive from defaultFileName/isZip
+    const hasKnownExt = /\.(pdf|zip|docx|jpe?g|png|webp|txt|svg)$/i.test(finalName);
+    if (!hasKnownExt) {
+      if (isZip) {
+        finalName += '.zip';
+      } else if (defaultFileName) {
+        const match = defaultFileName.match(/\.[a-zA-Z0-9]+$/);
+        finalName += match ? match[0] : '.pdf';
+      } else {
+        finalName += '.pdf';
+      }
     }
 
     downloadBlob(blob, finalName);
@@ -61,15 +82,29 @@ export const ResultModal: React.FC<ResultModalProps> = ({
       ? Math.round(((originalSize - newSize) / originalSize) * 100)
       : null;
 
+  const displayTitle = title || (isZip ? 'Your Images are Ready!' : defaultFileName.match(/\.(jpe?g|png|webp)$/i) ? 'Your Image is Ready!' : defaultFileName.endsWith('.docx') ? 'Your Word Document is Ready!' : 'Your PDF is Ready!');
+  const displaySubtitle = subtitle || 'File processed successfully and ready for download.';
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fadeIn">
-      <div className="w-full max-w-md bg-[#121218] border border-brand-gold/30 rounded-3xl p-8 text-center shadow-2xl relative">
+      <div className="w-full max-w-md bg-[#121218] border border-brand-gold/30 rounded-3xl p-6 sm:p-8 text-center shadow-2xl relative max-h-[90vh] overflow-y-auto">
         <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-amber-500/10 border border-brand-gold/40 flex items-center justify-center text-brand-gold shadow-gold-glow">
           <CheckCircle2 className="w-8 h-8" />
         </div>
 
-        <h3 className="text-xl font-bold text-white mb-1">Your PDF is Ready!</h3>
-        <p className="text-xs text-zinc-400 mb-6">File processed successfully and ready for download.</p>
+        <h3 className="text-xl font-bold text-white mb-1">{displayTitle}</h3>
+        <p className="text-xs text-zinc-400 mb-5">{displaySubtitle}</p>
+
+        {/* Optional Image Preview */}
+        {previewUrl && (
+          <div className="mb-5 rounded-2xl overflow-hidden border border-white/10 bg-black/50 max-h-52 flex items-center justify-center p-2">
+            <img
+              src={previewUrl}
+              alt="Converted Preview"
+              className="max-h-48 object-contain rounded-xl shadow-md"
+            />
+          </div>
+        )}
 
         {/* Compression Statistics Card */}
         {originalSize && newSize && (

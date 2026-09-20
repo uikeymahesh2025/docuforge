@@ -20,6 +20,7 @@ import {
   CheckCircle2,
 } from 'lucide-react';
 import { TOOLS, CATEGORY_LABELS } from '../utils/toolsCatalog';
+import { ICON_MAP } from '../components/common/MegaMenu';
 import { FileUploader } from '../components/tools/FileUploader';
 import { useEditorStore } from '../stores/useEditorStore';
 import { loadPdfDocument } from '../pdf/pdfManager';
@@ -189,6 +190,7 @@ export const Home: React.FC = () => {
         {/* Tools Grid */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
           {filteredTools.map((tool) => {
+            const ToolIcon = ICON_MAP[tool.icon] || FileEdit;
             return (
               <Link
                 key={tool.id}
@@ -198,7 +200,7 @@ export const Home: React.FC = () => {
                 <div>
                   <div className="flex items-center justify-between mb-3.5">
                     <div className="w-11 h-11 rounded-xl bg-zinc-900 border border-white/10 flex items-center justify-center text-zinc-300 group-hover:text-brand-gold group-hover:border-amber-500/30 transition">
-                      <FileEdit className="w-5 h-5" />
+                      <ToolIcon className="w-5 h-5" />
                     </div>
                     {tool.badge && (
                       <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500/10 text-brand-gold border border-amber-500/20">

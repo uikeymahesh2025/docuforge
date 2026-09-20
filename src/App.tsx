@@ -22,6 +22,9 @@ import { RotatePage } from './pages/RotatePage';
 import { ResizePage } from './pages/ResizePage';
 import { PdfToImagesPage } from './pages/PdfToImagesPage';
 import { ImageToPdfPage } from './pages/ImageToPdfPage';
+import { ExcelToPdfPage } from './pages/ExcelToPdfPage';
+import { PdfToExcelPage } from './pages/PdfToExcelPage';
+import { OcrPage } from './pages/OcrPage';
 import { PdfToWordPage } from './pages/PdfToWordPage';
 import { WordToPdfPage } from './pages/WordToPdfPage';
 import { HtmlToPdfPage } from './pages/HtmlToPdfPage';
@@ -87,6 +90,9 @@ export const App: React.FC = () => {
             <Route path="/resize-pdf" element={<ResizePage />} />
             <Route path="/pdf-to-images" element={<PdfToImagesPage />} />
             <Route path="/image-to-pdf" element={<ImageToPdfPage />} />
+            <Route path="/excel-to-pdf" element={<ExcelToPdfPage />} />
+            <Route path="/pdf-to-excel" element={<PdfToExcelPage />} />
+            <Route path="/ocr-pdf" element={<OcrPage />} />
             <Route path="/pdf-to-word" element={<PdfToWordPage />} />
             <Route path="/word-to-pdf" element={<WordToPdfPage />} />
             <Route path="/html-to-pdf" element={<HtmlToPdfPage />} />

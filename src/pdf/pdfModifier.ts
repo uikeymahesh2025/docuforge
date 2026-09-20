@@ -1,6 +1,6 @@
 import { PDFDocument, rgb, degrees, StandardFonts, PageSizes } from 'pdf-lib';
 import JSZip from 'jszip';
-import { Document, Paragraph, TextRun, Packer, HeadingLevel } from 'docx';
+import { Document, Paragraph, TextRun, Packer, HeadingLevel, ImageRun } from 'docx';
 import {
   WatermarkSettings,
   PageNumberSettings,
@@ -37,7 +37,7 @@ export function copyDocumentMetadata(sourceDoc: PDFDocument, targetDoc: PDFDocum
     const subject = sourceDoc.getSubject();
     if (subject) targetDoc.setSubject(subject);
     const keywords = sourceDoc.getKeywords();
-    if (keywords) targetDoc.setKeywords(keywords);
+    if (keywords) targetDoc.setKeywords(Array.isArray(keywords) ? keywords : [keywords]);
     const creator = sourceDoc.getCreator();
     if (creator) targetDoc.setCreator(creator);
     const producer = sourceDoc.getProducer();
@@ -519,7 +519,7 @@ export async function compressPdf(
   if (level === 'medium') {
     try {
       const formData = new FormData();
-      formData.append('file', new Blob([sourceBytes], { type: 'application/pdf' }), 'document.pdf');
+      formData.append('file', new Blob([sourceBytes as unknown as BlobPart], { type: 'application/pdf' }), 'document.pdf');
       let response = await fetch('/api/pdf/compress', {
         method: 'POST',
         body: formData,
@@ -571,7 +571,7 @@ export async function compressPdf(
       const ctx = canvas.getContext('2d');
 
       if (ctx) {
-        await page.render({ canvasContext: ctx, viewport, renderInteractiveForms: true }).promise;
+        await page.render({ canvasContext: ctx, viewport, renderInteractiveForms: true } as any).promise;
         const dataUrl = canvas.toDataURL('image/jpeg', quality);
         const embeddedImg = await newDoc.embedJpg(dataUrl);
 
@@ -603,42 +603,57 @@ export async function compressPdf(
   }
 }
 
-// 11. PDF TO WORD (Layout-Aware conversion via backend pdf2docx with enhanced browser fallback)
+// 11. PDF TO WORD (Layout-Aware conversion via backend with multi-endpoint routing & high-fidelity browser fallback)
 export async function pdfToWordDocx(sourceBytes: Uint8Array): Promise<Blob> {
-  // 1. Try Backend High-Fidelity Layout-Aware Engine (pdf2docx + PyMuPDF) first
+  // 1. Try Backend High-Fidelity Layout-Aware Engine (pdf2docx + PyMuPDF Universal Engine)
   try {
     const formData = new FormData();
-    formData.append('file', new Blob([sourceBytes], { type: 'application/pdf' }), 'document.pdf');
+    const pdfBlob = new Blob(
+      [sourceBytes.buffer.slice(sourceBytes.byteOffset, sourceBytes.byteOffset + sourceBytes.byteLength) as ArrayBuffer],
+      { type: 'application/pdf' }
+    );
+    formData.append('file', pdfBlob, 'document.pdf');
 
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 60000); // 60s timeout
+    const timeoutId = setTimeout(() => controller.abort(), 120000); // 120s timeout
 
-    let resp = await fetch('/api/convert/pdf-to-word', {
-      method: 'POST',
-      body: formData,
-      signal: controller.signal,
-    }).catch(() => null);
+    const hostName = typeof window !== 'undefined' && window.location.hostname ? window.location.hostname : 'localhost';
+    const endpoints = [
+      '/api/convert/pdf-to-word',
+      `http://${hostName}:4000/api/convert/pdf-to-word`,
+      'http://localhost:4000/api/convert/pdf-to-word',
+      'http://127.0.0.1:4000/api/convert/pdf-to-word',
+    ];
 
-    if (!resp || !resp.ok) {
-      resp = await fetch('http://localhost:4000/api/convert/pdf-to-word', {
-        method: 'POST',
-        body: formData,
-        signal: controller.signal,
-      }).catch(() => null);
+    let resp: Response | null = null;
+    for (const url of endpoints) {
+      try {
+        const candidate = await fetch(url, {
+          method: 'POST',
+          body: formData,
+          signal: controller.signal,
+        });
+        if (candidate && candidate.ok) {
+          resp = candidate;
+          break;
+        }
+      } catch {
+        // Try next candidate
+      }
     }
     clearTimeout(timeoutId);
 
     if (resp && resp.ok) {
       const blob = await resp.blob();
-      if (blob.size > 100) {
+      if (blob.size > 200) {
         return blob;
       }
     }
-  } catch (backendErr) {
-    console.warn('Backend layout-aware conversion unreachable; falling back to client-side docx engine:', backendErr);
+  } catch (backendErr: any) {
+    console.warn('Backend conversion unreachable; falling back to high-fidelity browser visual docx engine:', backendErr);
   }
 
-  // 2. Client-side Enhanced DOCX Engine
+  // 2. Client-side Enhanced DOCX Engine with 100% Visual and Text Preservation
   const pdfjsDoc = await loadPdfDocument(sourceBytes);
   const sections: any[] = [];
 
@@ -653,13 +668,57 @@ export async function pdfToWordDocx(sourceBytes: Uint8Array): Promise<Blob> {
       fontName?: string;
     }>;
 
-    const paragraphs: Paragraph[] = [
+    const pageParagraphs: Paragraph[] = [];
+
+    // Capture high-resolution visual layout of the page as an ImageRun in Word
+    try {
+      const viewport = page.getViewport({ scale: 2.083 }); // ~150 DPI
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.floor(viewport.width);
+      canvas.height = Math.floor(viewport.height);
+      const ctx = canvas.getContext('2d');
+      if (ctx) {
+        await page.render({ canvasContext: ctx, viewport, renderInteractiveForms: true } as any).promise;
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.88);
+        const base64Data = dataUrl.split(',')[1];
+        const binaryStr = atob(base64Data);
+        const imageBytes = new Uint8Array(binaryStr.length);
+        for (let b = 0; b < binaryStr.length; b++) {
+          imageBytes[b] = binaryStr.charCodeAt(b);
+        }
+
+        // Calculate dimensions in Word (target ~590pt max width, preserving aspect ratio)
+        const docxWidth = 590;
+        const docxHeight = Math.round((canvas.height / canvas.width) * docxWidth);
+
+        pageParagraphs.push(
+          new Paragraph({
+            children: [
+              new ImageRun({
+                type: 'png',
+                data: imageBytes,
+                transformation: {
+                  width: docxWidth,
+                  height: docxHeight,
+                },
+              }),
+            ],
+            spacing: { before: 100, after: 180 },
+          })
+        );
+      }
+    } catch (renderErr) {
+      console.warn('Page visual rendering skipped for page', i, renderErr);
+    }
+
+    // Editable Text and Structure Section
+    pageParagraphs.push(
       new Paragraph({
-        text: `--- Page ${i} ---`,
-        heading: HeadingLevel.HEADING_2,
-        spacing: { before: 200, after: 120 },
-      }),
-    ];
+        text: `--- Editable Content (Page ${i}) ---`,
+        heading: HeadingLevel.HEADING_3,
+        spacing: { before: 180, after: 100 },
+      })
+    );
 
     // Group items into lines based on Y coordinate with tolerance
     const lineMap = new Map<number, Array<{ str: string; x: number; fontSize: number; fontName?: string }>>();
@@ -689,7 +748,7 @@ export async function pdfToWordDocx(sourceBytes: Uint8Array): Promise<Blob> {
       const isTitle = maxFontSize >= 18;
       const isSubheading = maxFontSize >= 14 && maxFontSize < 18;
 
-      paragraphs.push(
+      pageParagraphs.push(
         new Paragraph({
           children: [
             new TextRun({
@@ -710,7 +769,7 @@ export async function pdfToWordDocx(sourceBytes: Uint8Array): Promise<Blob> {
 
     sections.push({
       properties: {},
-      children: paragraphs,
+      children: pageParagraphs,
     });
   }
 
@@ -771,18 +830,39 @@ export async function imagesToPdf(
 }
 
 // 13. PDF TO IMAGES (Exports each page as JPG or PNG with 300 DPI high-res rendering)
+export interface ConvertedPageImage {
+  pageNumber: number;
+  dataUrl: string;
+  blob: Blob;
+  filename: string;
+  width: number;
+  height: number;
+}
+
+export interface PdfToImagesResult {
+  blob: Blob;
+  isZip: boolean;
+  singleDataUrl?: string;
+  filename: string;
+  pages: ConvertedPageImage[];
+  totalPages: number;
+}
+
 export async function pdfToImagesZip(
   sourceBytes: Uint8Array,
   format: 'jpeg' | 'png' = 'jpeg',
   quality = 0.9,
   baseFileName = 'document',
   dpi: number = 300
-): Promise<{ blob: Blob; isZip: boolean; singleDataUrl?: string; filename: string }> {
+): Promise<PdfToImagesResult> {
   const pdfjsDoc = await loadPdfDocument(sourceBytes);
   const totalPages = pdfjsDoc.numPages;
+  const cleanBaseName = baseFileName.replace(/\.(pdf|zip|docx|jpe?g|png)$/i, '').trim() || 'document';
+  const ext = format === 'jpeg' ? 'jpg' : 'png';
 
   // Scale: standard PDF is 72 DPI. 300 DPI = scale 4.1667; 150 DPI = scale 2.083
   const scale = Math.max(1.0, dpi / 72);
+  const pages: ConvertedPageImage[] = [];
 
   if (totalPages === 1) {
     const page = await pdfjsDoc.getPage(1);
@@ -793,7 +873,7 @@ export async function pdfToImagesZip(
     const ctx = canvas.getContext('2d');
     if (!ctx) throw new Error('Canvas context unavailable');
 
-    await page.render({ canvasContext: ctx, viewport, renderInteractiveForms: true }).promise;
+    await page.render({ canvasContext: ctx, viewport, renderInteractiveForms: true } as any).promise;
     const dataUrl = canvas.toDataURL(`image/${format}`, quality);
     const byteString = atob(dataUrl.split(',')[1]);
     const ab = new ArrayBuffer(byteString.length);
@@ -802,16 +882,29 @@ export async function pdfToImagesZip(
       ia[i] = byteString.charCodeAt(i);
     }
     const blob = new Blob([ab], { type: `image/${format}` });
+    const singleFilename = `${cleanBaseName}_page_1.${ext}`;
+
+    const pageObj: ConvertedPageImage = {
+      pageNumber: 1,
+      dataUrl,
+      blob,
+      filename: singleFilename,
+      width: canvas.width,
+      height: canvas.height,
+    };
+    pages.push(pageObj);
 
     return {
       blob,
       isZip: false,
       singleDataUrl: dataUrl,
-      filename: `${baseFileName}_page_1_${dpi}dpi.${format === 'jpeg' ? 'jpg' : 'png'}`,
+      filename: singleFilename,
+      pages,
+      totalPages: 1,
     };
   }
 
-  // Multi-page -> ZIP
+  // Multi-page -> ZIP and collect page images
   const zip = new JSZip();
 
   for (let i = 1; i <= totalPages; i++) {
@@ -823,17 +916,41 @@ export async function pdfToImagesZip(
     const ctx = canvas.getContext('2d');
     if (!ctx) continue;
 
-    await page.render({ canvasContext: ctx, viewport, renderInteractiveForms: true }).promise;
+    await page.render({ canvasContext: ctx, viewport, renderInteractiveForms: true } as any).promise;
     const dataUrl = canvas.toDataURL(`image/${format}`, quality);
     const base64Data = dataUrl.split(',')[1];
-    zip.file(`${baseFileName}_page_${i}_${dpi}dpi.${format === 'jpeg' ? 'jpg' : 'png'}`, base64Data, { base64: true });
+    const pageFilename = `${cleanBaseName}_page_${i}.${ext}`;
+    
+    zip.file(pageFilename, base64Data, { base64: true });
+
+    const byteString = atob(base64Data);
+    const ab = new ArrayBuffer(byteString.length);
+    const ia = new Uint8Array(ab);
+    for (let j = 0; j < byteString.length; j++) {
+      ia[j] = byteString.charCodeAt(j);
+    }
+    const pageBlob = new Blob([ab], { type: `image/${format}` });
+
+    pages.push({
+      pageNumber: i,
+      dataUrl,
+      blob: pageBlob,
+      filename: pageFilename,
+      width: canvas.width,
+      height: canvas.height,
+    });
   }
 
   const zipBlob = await zip.generateAsync({ type: 'blob' });
+  const zipFilename = `${cleanBaseName}_images.zip`;
+
   return {
     blob: zipBlob,
     isZip: true,
-    filename: `${baseFileName}_${dpi}dpi_images.zip`,
+    singleDataUrl: pages[0]?.dataUrl,
+    filename: zipFilename,
+    pages,
+    totalPages,
   };
 }
 
@@ -979,7 +1096,7 @@ export async function bakeAnnotationsOnPdf(
         });
       } else if (ann.type === 'rect') {
         const shape = ann as any;
-        const borderRgb = hexToRgb(shape.strokeColor || '#D4AF37');
+        const borderRgb = hexToRgb(shape.strokeColor || shape.color || '#D4AF37');
         const pdfY = pageH - ann.y - ann.height;
 
         page.drawRectangle({
@@ -996,7 +1113,7 @@ export async function bakeAnnotationsOnPdf(
         });
       } else if (ann.type === 'circle') {
         const shape = ann as any;
-        const borderRgb = hexToRgb(shape.strokeColor || '#D4AF37');
+        const borderRgb = hexToRgb(shape.strokeColor || shape.color || '#D4AF37');
         const radius = Math.min(ann.width, ann.height) / 2;
         const pdfY = pageH - ann.y - radius;
 
@@ -1008,11 +1125,21 @@ export async function bakeAnnotationsOnPdf(
           borderWidth: shape.strokeWidth || 2,
           opacity: ann.opacity,
         });
+      } else if (ann.type === 'line' || ann.type === 'arrow') {
+        const shape = ann as any;
+        const borderRgb = hexToRgb(shape.strokeColor || shape.color || '#D4AF37');
+        page.drawLine({
+          start: { x: ann.x, y: pageH - ann.y },
+          end: { x: ann.x + ann.width, y: pageH - (ann.y + ann.height) },
+          thickness: shape.strokeWidth || 2,
+          color: rgb(borderRgb.r, borderRgb.g, borderRgb.b),
+          opacity: ann.opacity,
+        });
       } else if (ann.type === 'draw' || ann.type === 'highlight') {
         const drawAnn = ann as any;
         if (drawAnn.points && drawAnn.points.length > 1) {
           const isHighlighter = ann.type === 'highlight';
-          const strokeColor = hexToRgb(ann.color || (isHighlighter ? '#FFFF00' : '#D4AF37'));
+          const strokeColor = hexToRgb(ann.color || (ann as any).strokeColor || (isHighlighter ? '#FFFF00' : '#D4AF37'));
 
           for (let p = 0; p < drawAnn.points.length - 1; p++) {
             const p1 = drawAnn.points[p];

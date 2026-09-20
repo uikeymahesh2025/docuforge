@@ -11,6 +11,7 @@ export const WordToPdfPage: React.FC = () => {
   const [inputText, setInputText] = useState('');
   const [docTitle, setDocTitle] = useState('My Document');
   const [fileName, setFileName] = useState('');
+  const [rawFile, setRawFile] = useState<File | null>(null);
   const [pageSize, setPageSize] = useState<'a4' | 'letter'>('a4');
   const [marginSetting, setMarginSetting] = useState<'normal' | 'compact' | 'wide'>('normal');
   const [isProcessing, setIsProcessing] = useState(false);
@@ -22,6 +23,7 @@ export const WordToPdfPage: React.FC = () => {
     if (!file) return;
 
     setFileName(file.name);
+    setRawFile(file);
     try {
       if (file.name.endsWith('.docx')) {
         const zip = await JSZip.loadAsync(file);
@@ -52,7 +54,7 @@ export const WordToPdfPage: React.FC = () => {
         addToast({
           type: 'success',
           title: 'Word Document Loaded',
-          message: `Extracted ${lines.length} paragraphs from ${file.name}.`,
+          message: `Loaded ${file.name}. Ready for high-fidelity conversion.`,
         });
       } else if (file.name.endsWith('.txt') || file.name.endsWith('.md')) {
         const content = await file.text();
@@ -72,12 +74,58 @@ export const WordToPdfPage: React.FC = () => {
   };
 
   const handleConvert = async () => {
-    if (!inputText.trim()) {
+    if (!inputText.trim() && !rawFile) {
       addToast({ type: 'warning', title: 'Empty Content', message: 'Please upload a Word document or enter text to convert.' });
       return;
     }
 
     setIsProcessing(true);
+
+    // 1. Try Backend High-Fidelity Word-to-PDF if raw .docx is available
+    if (rawFile && rawFile.name.endsWith('.docx')) {
+      try {
+        const formData = new FormData();
+        formData.append('file', rawFile);
+
+        const hostName = typeof window !== 'undefined' && window.location.hostname ? window.location.hostname : 'localhost';
+        const endpoints = [
+          '/api/convert/word-to-pdf',
+          `http://${hostName}:4000/api/convert/word-to-pdf`,
+          'http://localhost:4000/api/convert/word-to-pdf',
+          'http://127.0.0.1:4000/api/convert/word-to-pdf',
+        ];
+
+        let resp: Response | null = null;
+        for (const url of endpoints) {
+          try {
+            const candidate = await fetch(url, { method: 'POST', body: formData });
+            if (candidate && candidate.ok) {
+              resp = candidate;
+              break;
+            }
+          } catch {
+            // Next candidate
+          }
+        }
+
+        if (resp && resp.ok) {
+          const blob = await resp.blob();
+          if (blob.size > 200) {
+            const buffer = await blob.arrayBuffer();
+            setResultBytes(new Uint8Array(buffer));
+            addToast({
+              type: 'success',
+              title: 'PDF Document Ready',
+              message: 'High-fidelity Word to PDF conversion complete.',
+            });
+            setIsProcessing(false);
+            return;
+          }
+        }
+      } catch (backendErr) {
+        console.warn('Backend Word to PDF unreachable; using client-side renderer:', backendErr);
+      }
+    }
     try {
       const pdfDoc = await PDFDocument.create();
       const fontRegular = await pdfDoc.embedFont(StandardFonts.Helvetica);

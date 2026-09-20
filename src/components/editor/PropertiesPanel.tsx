@@ -42,6 +42,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ onClose, isMob
     setFontSize,
     textColor,
     setTextColor,
+    setColor,
     opacity,
     setOpacity,
     updateAnnotation,
@@ -49,6 +50,23 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ onClose, isMob
   } = useEditorStore();
 
   const selectedAnnotation = annotations.find((a) => a.id === selectedAnnotationId);
+
+  const activeDisplayColor =
+    selectedAnnotation?.color ||
+    (selectedAnnotation as any)?.strokeColor ||
+    (activeTool === 'text' ? textColor : strokeColor);
+
+  const handleColorSelect = (col: string) => {
+    if (selectedAnnotation) {
+      updateAnnotation(selectedAnnotation.id, {
+        color: col,
+        strokeColor: col,
+      } as any);
+    }
+    setColor(col);
+    setStrokeColor(col);
+    setTextColor(col);
+  };
 
   const handleDelete = () => {
     if (selectedAnnotationId) {
@@ -106,31 +124,40 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ onClose, isMob
       <div className="space-y-2.5">
         <label className="block text-[11px] font-semibold text-zinc-400 uppercase tracking-wider flex items-center justify-between">
           <span>Color</span>
-          <span className="text-[10px] text-zinc-500 font-mono">
-            {selectedAnnotation?.color || (activeTool === 'text' ? textColor : strokeColor)}
+          <span className="text-[10px] text-brand-gold font-mono font-bold">
+            {activeDisplayColor}
           </span>
         </label>
         <div className="grid grid-cols-5 gap-2">
           {COLOR_PRESETS.map((col) => (
             <button
               key={col}
-              onClick={() => {
-                if (selectedAnnotation) {
-                  updateAnnotation(selectedAnnotation.id, { color: col });
-                } else if (activeTool === 'text') {
-                  setTextColor(col);
-                } else {
-                  setStrokeColor(col);
-                }
-              }}
+              type="button"
+              onClick={() => handleColorSelect(col)}
               style={{ backgroundColor: col }}
               className={`w-7 h-7 rounded-lg border-2 transition ${
-                (selectedAnnotation?.color || (activeTool === 'text' ? textColor : strokeColor)) === col
-                  ? 'border-brand-gold scale-110 shadow-md'
+                activeDisplayColor.toLowerCase() === col.toLowerCase()
+                  ? 'border-brand-gold scale-110 shadow-gold-glow'
                   : 'border-white/10 hover:border-white/40'
               }`}
+              title={col}
             />
           ))}
+        </div>
+
+        {/* Custom Color Input */}
+        <div className="flex items-center gap-2 pt-1">
+          <label className="text-[11px] text-zinc-400">Custom:</label>
+          <input
+            type="color"
+            value={activeDisplayColor}
+            onChange={(e) => handleColorSelect(e.target.value)}
+            className="w-7 h-7 rounded-lg cursor-pointer bg-transparent border border-white/10"
+            title="Pick custom color"
+          />
+          <span className="text-[10px] font-mono text-zinc-400 uppercase">
+            {activeDisplayColor}
+          </span>
         </div>
       </div>
 

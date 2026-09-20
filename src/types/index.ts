@@ -47,6 +47,19 @@ export interface ExtractedTextItem {
   fontName: string;
 }
 
+export interface SearchMatch {
+  id: string;
+  pageNumber: number;
+  matchIndexOnPage: number;
+  globalIndex: number;
+  text: string;
+  x: number; // Viewport screen X at scale 1.0
+  y: number; // Viewport screen Y at scale 1.0
+  width: number;
+  height: number;
+  snippet: string;
+}
+
 export interface DirectTextEdit {
   id: string;
   pageNumber: number;
@@ -131,13 +144,6 @@ export interface PageInfo {
   height: number;
   rotation: number;
   thumbnailUrl?: string;
-}
-
-export interface SearchMatch {
-  pageIndex: number;
-  matchIndex: number;
-  text: string;
-  bounds: { x: number; y: number; width: number; height: number };
 }
 
 export interface WatermarkSettings {

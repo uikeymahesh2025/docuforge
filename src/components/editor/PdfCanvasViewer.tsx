@@ -9,7 +9,12 @@ import {
   Sparkles,
 } from 'lucide-react';
 import { useEditorStore } from '../../stores/useEditorStore';
-import { loadPdfDocument, renderPageToCanvas, getPageTextItemsWithCoords } from '../../pdf/pdfManager';
+import {
+  loadPdfDocument,
+  renderPageToCanvas,
+  getPageTextItemsWithCoords,
+  extractMatchesFromTextItems,
+} from '../../pdf/pdfManager';
 import {
   AnyAnnotation,
   TextAnnotation,
@@ -51,6 +56,12 @@ export const PdfCanvasViewer: React.FC<PdfCanvasViewerProps> = ({ onSelectAnnota
     removeImageReplacement,
     extractedPageTextItems,
     setExtractedPageTextItems,
+    searchQuery,
+    searchMatches,
+    activeSearchMatchIndex,
+    setActiveSearchMatchIndex,
+    setScale,
+    setFitHandlers,
   } = useEditorStore();
 
   const containerRef = useRef<HTMLDivElement>(null);
@@ -64,9 +75,25 @@ export const PdfCanvasViewer: React.FC<PdfCanvasViewerProps> = ({ onSelectAnnota
   const [shapeStart, setShapeStart] = useState<{ x: number; y: number } | null>(null);
   const [currentShapePreview, setCurrentShapePreview] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
 
-  // Dragging / Moving existing annotation
-  const [draggingId, setDraggingId] = useState<string | null>(null);
-  const [dragOffset, setDragOffset] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+  // Dragging / Moving existing annotations (Text, Drawing, Shapes, Images)
+  interface DragState {
+    annotationId: string;
+    startMouseX: number;
+    startMouseY: number;
+    startAnnX: number;
+    startAnnY: number;
+    originalPoints?: { x: number; y: number }[];
+  }
+
+  const [dragState, setDragState] = useState<DragState | null>(null);
+  const [isPanning, setIsPanning] = useState(false);
+  const [panStart, setPanStart] = useState<{
+    scrollLeft: number;
+    scrollTop: number;
+    clientX: number;
+    clientY: number;
+  } | null>(null);
+  const [hoveredAnnId, setHoveredAnnId] = useState<string | null>(null);
 
   // Direct Text Edit State
   const [editingModal, setEditingModal] = useState<{
@@ -91,6 +118,97 @@ export const PdfCanvasViewer: React.FC<PdfCanvasViewerProps> = ({ onSelectAnnota
     height: number;
   } | null>(null);
   const [targetReplaceId, setTargetReplaceId] = useState<string | null>(null);
+
+  // Compute search highlight rectangles on current page
+  const pageSearchHighlights = React.useMemo(() => {
+    if (!searchQuery || !searchQuery.trim()) return [];
+
+    // 1. If global search indexed results across document, filter for this page
+    if (searchMatches.length > 0) {
+      const filtered = searchMatches.filter((m) => m.pageNumber === currentPage);
+      if (filtered.length > 0) return filtered;
+    }
+
+    // 2. Otherwise calculate live matches instantly from extracted text items on this page
+    if (extractedPageTextItems.length > 0) {
+      return extractMatchesFromTextItems(extractedPageTextItems, searchQuery, currentPage);
+    }
+
+    return [];
+  }, [searchQuery, searchMatches, currentPage, extractedPageTextItems]);
+
+  // Smoothly scroll active search match into view
+  useEffect(() => {
+    if (activeSearchMatchIndex >= 0 && searchMatches.length > 0) {
+      const activeMatch = searchMatches[activeSearchMatchIndex];
+      if (activeMatch && activeMatch.pageNumber === currentPage) {
+        const matchEl = document.getElementById(`search-highlight-${activeMatch.id}`);
+        if (matchEl) {
+          matchEl.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' });
+        }
+      }
+    }
+  }, [activeSearchMatchIndex, searchMatches, currentPage]);
+
+  // Register Fit to Width & Fit to Page handlers
+  useEffect(() => {
+    const fitToWidth = () => {
+      if (!containerRef.current || pageDims.width === 0) return;
+      const padding = window.innerWidth < 640 ? 32 : 64;
+      const availableWidth = containerRef.current.clientWidth - padding;
+      const unscaledWidth = pageDims.width / scale;
+      if (unscaledWidth > 0 && availableWidth > 50) {
+        const newScale = Math.min(Math.max(availableWidth / unscaledWidth, 0.25), 4.0);
+        setScale(Number(newScale.toFixed(2)));
+      }
+    };
+
+    const fitToPage = () => {
+      if (!containerRef.current || pageDims.width === 0 || pageDims.height === 0) return;
+      const padding = window.innerWidth < 640 ? 32 : 64;
+      const availableWidth = containerRef.current.clientWidth - padding;
+      const availableHeight = containerRef.current.clientHeight - padding;
+      const unscaledWidth = pageDims.width / scale;
+      const unscaledHeight = pageDims.height / scale;
+      if (unscaledWidth > 0 && unscaledHeight > 0 && availableWidth > 50 && availableHeight > 50) {
+        const newScale = Math.min(
+          Math.max(
+            Math.min(availableWidth / unscaledWidth, availableHeight / unscaledHeight),
+            0.25
+          ),
+          4.0
+        );
+        setScale(Number(newScale.toFixed(2)));
+      }
+    };
+
+    setFitHandlers({ fitToWidth, fitToPage });
+    return () => {
+      setFitHandlers(null);
+    };
+  }, [pageDims.width, pageDims.height, scale, setScale, setFitHandlers]);
+
+  // Ctrl + Mouse Wheel for smooth zooming
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    const handleWheel = (e: WheelEvent) => {
+      if (e.ctrlKey || e.metaKey) {
+        e.preventDefault();
+        const delta = e.deltaY > 0 ? -0.1 : 0.1;
+        setScale((prev) => {
+          const next = prev + delta;
+          return Math.min(Math.max(Number(next.toFixed(2)), 0.25), 4.0);
+        });
+      }
+    };
+
+    container.addEventListener('wheel', handleWheel, { passive: false });
+    return () => {
+      container.removeEventListener('wheel', handleWheel);
+    };
+  }, [setScale]);
 
   // Render base PDF page and extract text coordinates
   useEffect(() => {
@@ -227,7 +345,7 @@ export const PdfCanvasViewer: React.FC<PdfCanvasViewerProps> = ({ onSelectAnnota
     if (isDrawing && currentPoints.length > 1) {
       ctx.save();
       ctx.beginPath();
-      ctx.strokeStyle = activeTool === 'highlight' ? '#FFFF00' : strokeColor;
+      ctx.strokeStyle = strokeColor;
       ctx.globalAlpha = activeTool === 'highlight' ? 0.4 : opacity;
       ctx.lineWidth = (activeTool === 'highlight' ? 14 : strokeWidth) * scale;
       ctx.lineCap = 'round';
@@ -294,6 +412,158 @@ export const PdfCanvasViewer: React.FC<PdfCanvasViewerProps> = ({ onSelectAnnota
     opacity,
   ]);
 
+  // Window-level dragging and canvas panning listeners
+  useEffect(() => {
+    if (!dragState && !isPanning) return;
+
+    const handlePointerMove = (e: MouseEvent | TouchEvent) => {
+      const clientX = 'touches' in e ? e.touches[0].clientX : (e as MouseEvent).clientX;
+      const clientY = 'touches' in e ? e.touches[0].clientY : (e as MouseEvent).clientY;
+
+      // Moving an annotation (Text, Draw, Shape, Image, Signature)
+      if (dragState) {
+        const canvas = overlayCanvasRef.current;
+        if (!canvas) return;
+        const rect = canvas.getBoundingClientRect();
+        const currentMouseX = (clientX - rect.left) / scale;
+        const currentMouseY = (clientY - rect.top) / scale;
+
+        const dx = currentMouseX - dragState.startMouseX;
+        const dy = currentMouseY - dragState.startMouseY;
+
+        const newX = Math.round(dragState.startAnnX + dx);
+        const newY = Math.round(dragState.startAnnY + dy);
+
+        if (dragState.originalPoints && dragState.originalPoints.length > 0) {
+          const newPoints = dragState.originalPoints.map((pt) => ({
+            x: Math.round(pt.x + dx),
+            y: Math.round(pt.y + dy),
+          }));
+          updateAnnotation(dragState.annotationId, {
+            x: newX,
+            y: newY,
+            points: newPoints,
+          } as any);
+        } else {
+          updateAnnotation(dragState.annotationId, {
+            x: newX,
+            y: newY,
+          } as any);
+        }
+        return;
+      }
+
+      // Panning the document canvas with the Hand tool
+      if (isPanning && panStart && containerRef.current) {
+        const dx = clientX - panStart.clientX;
+        const dy = clientY - panStart.clientY;
+        containerRef.current.scrollLeft = panStart.scrollLeft - dx;
+        containerRef.current.scrollTop = panStart.scrollTop - dy;
+      }
+    };
+
+    const handlePointerUp = () => {
+      setDragState(null);
+      setIsPanning(false);
+      setPanStart(null);
+    };
+
+    window.addEventListener('mousemove', handlePointerMove, { passive: false });
+    window.addEventListener('mouseup', handlePointerUp);
+    window.addEventListener('touchmove', handlePointerMove, { passive: false });
+    window.addEventListener('touchend', handlePointerUp);
+
+    return () => {
+      window.removeEventListener('mousemove', handlePointerMove);
+      window.removeEventListener('mouseup', handlePointerUp);
+      window.removeEventListener('touchmove', handlePointerMove);
+      window.removeEventListener('touchend', handlePointerUp);
+    };
+  }, [dragState, isPanning, panStart, scale, updateAnnotation]);
+
+  // Initiate dragging an existing annotation
+  const startDragAnnotation = (
+    ann: AnyAnnotation,
+    clientX: number,
+    clientY: number
+  ) => {
+    setSelectedAnnotationId(ann.id);
+    const canvas = overlayCanvasRef.current;
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    const mouseX = (clientX - rect.left) / scale;
+    const mouseY = (clientY - rect.top) / scale;
+
+    const origPoints =
+      (ann.type === 'draw' || ann.type === 'highlight') && (ann as DrawAnnotation).points
+        ? (ann as DrawAnnotation).points.map((p) => ({ ...p }))
+        : undefined;
+
+    setDragState({
+      annotationId: ann.id,
+      startMouseX: mouseX,
+      startMouseY: mouseY,
+      startAnnX: ann.x,
+      startAnnY: ann.y,
+      originalPoints: origPoints,
+    });
+  };
+
+  // Accurate hit testing for any annotation on current page
+  const hitTestAnnotation = (x: number, y: number): AnyAnnotation | null => {
+    const pageAnns = annotations.filter((a) => a.pageNumber === currentPage);
+    for (let i = pageAnns.length - 1; i >= 0; i--) {
+      const ann = pageAnns[i];
+      const pad = 12;
+
+      if (ann.type === 'draw' || ann.type === 'highlight') {
+        const drawAnn = ann as DrawAnnotation;
+        if (
+          x >= ann.x - pad &&
+          x <= ann.x + ann.width + pad &&
+          y >= ann.y - pad &&
+          y <= ann.y + ann.height + pad
+        ) {
+          if (drawAnn.points && drawAnn.points.length > 0) {
+            const threshold = Math.max((drawAnn.strokeWidth || 4) + 12, 16);
+            const near = drawAnn.points.some((pt) => {
+              const d2 = (pt.x - x) ** 2 + (pt.y - y) ** 2;
+              return d2 <= threshold * threshold;
+            });
+            if (near) return ann;
+          } else {
+            return ann;
+          }
+        }
+      } else if (ann.type === 'line' || ann.type === 'arrow') {
+        const x1 = ann.x;
+        const y1 = ann.y;
+        const x2 = ann.x + ann.width;
+        const y2 = ann.y + ann.height;
+        const lineLenSq = (x2 - x1) ** 2 + (y2 - y1) ** 2;
+        if (lineLenSq === 0) {
+          if (Math.hypot(x - x1, y - y1) <= 16) return ann;
+        } else {
+          let t = ((x - x1) * (x2 - x1) + (y - y1) * (y2 - y1)) / lineLenSq;
+          t = Math.max(0, Math.min(1, t));
+          const projX = x1 + t * (x2 - x1);
+          const projY = y1 + t * (y2 - y1);
+          if (Math.hypot(x - projX, y - projY) <= 16) return ann;
+        }
+      } else {
+        if (
+          x >= ann.x - pad &&
+          x <= ann.x + ann.width + pad &&
+          y >= ann.y - pad &&
+          y <= ann.y + ann.height + pad
+        ) {
+          return ann;
+        }
+      }
+    }
+    return null;
+  };
+
   // Mouse / Touch handlers for overlay
   const getCanvasCoords = (e: React.MouseEvent | React.TouchEvent) => {
     const canvas = overlayCanvasRef.current;
@@ -309,6 +579,8 @@ export const PdfCanvasViewer: React.FC<PdfCanvasViewerProps> = ({ onSelectAnnota
 
   const handleMouseDown = (e: React.MouseEvent | React.TouchEvent) => {
     const coords = getCanvasCoords(e);
+    const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
+    const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
 
     if (activeTool === 'direct-text') {
       // Handled by text overlay elements
@@ -321,37 +593,38 @@ export const PdfCanvasViewer: React.FC<PdfCanvasViewerProps> = ({ onSelectAnnota
       return;
     }
 
-    if (activeTool === 'select') {
-      // Hit testing existing annotations
-      const pageAnns = annotations.filter((a) => a.pageNumber === currentPage);
-      const hit = [...pageAnns].reverse().find((ann) => {
-        return (
-          coords.x >= ann.x &&
-          coords.x <= ann.x + ann.width &&
-          coords.y >= ann.y &&
-          coords.y <= ann.y + ann.height
-        );
-      });
+    if (activeTool === 'eraser') {
+      const hit = hitTestAnnotation(coords.x, coords.y);
+      if (hit) deleteAnnotation(hit.id);
+      return;
+    }
 
+    // Both 'select' AND 'hand' can select and move existing annotations!
+    if (activeTool === 'select' || activeTool === 'hand') {
+      const hit = hitTestAnnotation(coords.x, coords.y);
       if (hit) {
-        setSelectedAnnotationId(hit.id);
-        setDraggingId(hit.id);
-        setDragOffset({ x: coords.x - hit.x, y: coords.y - hit.y });
+        startDragAnnotation(hit, clientX, clientY);
+        return;
       } else {
         setSelectedAnnotationId(null);
+        if (activeTool === 'hand') {
+          // Pan canvas when clicking blank area with Hand tool
+          if (containerRef.current) {
+            setIsPanning(true);
+            setPanStart({
+              scrollLeft: containerRef.current.scrollLeft,
+              scrollTop: containerRef.current.scrollTop,
+              clientX,
+              clientY,
+            });
+          }
+          return;
+        }
       }
-    } else if (activeTool === 'eraser') {
-      const pageAnns = annotations.filter((a) => a.pageNumber === currentPage);
-      const hit = [...pageAnns].reverse().find((ann) => {
-        return (
-          coords.x >= ann.x - 5 &&
-          coords.x <= ann.x + ann.width + 5 &&
-          coords.y >= ann.y - 5 &&
-          coords.y <= ann.y + ann.height + 5
-        );
-      });
-      if (hit) deleteAnnotation(hit.id);
-    } else if (activeTool === 'text') {
+      return;
+    }
+
+    if (activeTool === 'text') {
       const id = Math.random().toString(36).substring(2, 9);
       const defaultText = prompt('Enter text to add:', 'Text overlay') || '';
       if (defaultText.trim()) {
@@ -374,10 +647,16 @@ export const PdfCanvasViewer: React.FC<PdfCanvasViewerProps> = ({ onSelectAnnota
         };
         addAnnotation(newText);
       }
-    } else if (activeTool === 'draw' || activeTool === 'highlight') {
+      return;
+    }
+
+    if (activeTool === 'draw' || activeTool === 'highlight') {
       setIsDrawing(true);
       setCurrentPoints([coords]);
-    } else if (['rect', 'circle', 'line', 'arrow'].includes(activeTool)) {
+      return;
+    }
+
+    if (['rect', 'circle', 'line', 'arrow'].includes(activeTool)) {
       setShapeStart(coords);
       setCurrentShapePreview({ x: coords.x, y: coords.y, w: 0, h: 0 });
     }
@@ -386,17 +665,14 @@ export const PdfCanvasViewer: React.FC<PdfCanvasViewerProps> = ({ onSelectAnnota
   const handleMouseMove = (e: React.MouseEvent | React.TouchEvent) => {
     const coords = getCanvasCoords(e);
 
-    if (draggingId) {
-      const ann = annotations.find((a) => a.id === draggingId);
-      if (ann) {
-        updateAnnotation(draggingId, {
-          x: coords.x - dragOffset.x,
-          y: coords.y - dragOffset.y,
-        });
-      }
-    } else if (isDrawing) {
+    // Freehand drawing in progress
+    if (isDrawing) {
       setCurrentPoints((prev) => [...prev, coords]);
-    } else if (shapeStart) {
+      return;
+    }
+
+    // Shape drawing in progress
+    if (shapeStart) {
       const w = coords.x - shapeStart.x;
       const h = coords.y - shapeStart.y;
       setCurrentShapePreview({
@@ -405,6 +681,17 @@ export const PdfCanvasViewer: React.FC<PdfCanvasViewerProps> = ({ onSelectAnnota
         w: Math.abs(w),
         h: Math.abs(h),
       });
+      return;
+    }
+
+    // Update hover feedback for annotations when using Hand or Select tools
+    if (
+      (activeTool === 'select' || activeTool === 'hand' || activeTool === 'eraser') &&
+      !dragState &&
+      !isPanning
+    ) {
+      const hit = hitTestAnnotation(coords.x, coords.y);
+      setHoveredAnnId(hit ? hit.id : null);
     }
   };
 
@@ -423,9 +710,7 @@ export const PdfCanvasViewer: React.FC<PdfCanvasViewerProps> = ({ onSelectAnnota
       return;
     }
 
-    if (draggingId) {
-      setDraggingId(null);
-    } else if (isDrawing && currentPoints.length > 1) {
+    if (isDrawing && currentPoints.length > 1) {
       const id = Math.random().toString(36).substring(2, 9);
       let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
       for (const p of currentPoints) {
@@ -445,7 +730,7 @@ export const PdfCanvasViewer: React.FC<PdfCanvasViewerProps> = ({ onSelectAnnota
         width: Math.max(maxX - minX, 10),
         height: Math.max(maxY - minY, 10),
         strokeWidth: activeTool === 'highlight' ? 14 : strokeWidth,
-        color: activeTool === 'highlight' ? '#FFFF00' : strokeColor,
+        color: strokeColor,
         opacity: activeTool === 'highlight' ? 0.35 : opacity,
       };
 
@@ -515,10 +800,31 @@ export const PdfCanvasViewer: React.FC<PdfCanvasViewerProps> = ({ onSelectAnnota
     if (replaceFileInputRef.current) replaceFileInputRef.current.value = '';
   };
 
+  const handleContainerMouseDown = (e: React.MouseEvent) => {
+    if (activeTool === 'hand' && e.button === 0) {
+      const target = e.target as HTMLElement;
+      if (
+        target === containerRef.current ||
+        target.getAttribute('data-scroll-area') === 'true'
+      ) {
+        setIsPanning(true);
+        setPanStart({
+          scrollLeft: containerRef.current ? containerRef.current.scrollLeft : 0,
+          scrollTop: containerRef.current ? containerRef.current.scrollTop : 0,
+          clientX: e.clientX,
+          clientY: e.clientY,
+        });
+      }
+    }
+  };
+
   return (
     <div
       ref={containerRef}
-      className="flex-1 overflow-auto flex items-center justify-center p-4 sm:p-8 canvas-container-bg relative select-none"
+      onMouseDown={handleContainerMouseDown}
+      className={`flex-1 overflow-auto canvas-container-bg relative select-none ${
+        dragState || isPanning ? 'cursor-grabbing' : activeTool === 'hand' ? 'cursor-grab' : ''
+      }`}
     >
       {/* Hidden file picker for image replacement */}
       <input
@@ -529,13 +835,22 @@ export const PdfCanvasViewer: React.FC<PdfCanvasViewerProps> = ({ onSelectAnnota
         className="hidden"
       />
 
+      {/* Centering & Scroll Area:
+          min-w-full and min-h-full ensure it takes at least 100% of viewport.
+          w-fit and h-fit ensure it expands when canvas is larger (zoomed in),
+          so left, right, top, bottom edges are 100% scrollable and never clipped.
+      */}
       <div
-        className="relative shadow-2xl rounded-sm transition-all"
-        style={{
-          width: `${pageDims.width}px`,
-          height: `${pageDims.height}px`,
-        }}
+        data-scroll-area="true"
+        className="min-w-full min-h-full w-fit h-fit flex p-4 sm:p-8 box-border"
       >
+        <div
+          className="m-auto relative shadow-2xl rounded-sm transition-all shrink-0"
+          style={{
+            width: `${pageDims.width}px`,
+            height: `${pageDims.height}px`,
+          }}
+        >
         {/* PDF.js Page Canvas */}
         <canvas
           ref={pdfCanvasRef}
@@ -707,10 +1022,16 @@ export const PdfCanvasViewer: React.FC<PdfCanvasViewerProps> = ({ onSelectAnnota
           onTouchMove={handleMouseMove}
           onTouchEnd={handleMouseUp}
           className={`absolute inset-0 touch-none ${
-            activeTool === 'select'
-              ? 'cursor-default'
+            dragState
+              ? 'cursor-grabbing'
+              : isPanning
+              ? 'cursor-grabbing'
+              : hoveredAnnId && (activeTool === 'hand' || activeTool === 'select')
+              ? 'cursor-grab'
               : activeTool === 'hand'
               ? 'cursor-grab'
+              : activeTool === 'select'
+              ? 'cursor-default'
               : activeTool === 'direct-text'
               ? 'cursor-text pointer-events-none'
               : activeTool === 'replace-image'
@@ -721,22 +1042,104 @@ export const PdfCanvasViewer: React.FC<PdfCanvasViewerProps> = ({ onSelectAnnota
           }`}
         />
 
-        {/* Render Text Annotations as interactive editable elements */}
+        {/* Search Highlights Overlay Layer */}
+        {pageSearchHighlights.length > 0 && (
+          <div className="absolute inset-0 z-20 pointer-events-none">
+            {pageSearchHighlights.map((match, idx) => {
+              const isGlobalActive =
+                activeSearchMatchIndex >= 0 &&
+                searchMatches[activeSearchMatchIndex]?.id === match.id;
+              const isFirstOrActive =
+                isGlobalActive || (activeSearchMatchIndex === -1 && idx === 0);
+
+              const padX = 2 * scale;
+              const padY = 1.5 * scale;
+
+              return (
+                <div
+                  key={match.id}
+                  id={`search-highlight-${match.id}`}
+                  style={{
+                    position: 'absolute',
+                    left: `${match.x * scale - padX}px`,
+                    top: `${match.y * scale - padY}px`,
+                    width: `${match.width * scale + padX * 2}px`,
+                    height: `${match.height * scale + padY * 2}px`,
+                    mixBlendMode: 'multiply',
+                  }}
+                  onClick={(e) => {
+                    if (activeTool === 'select' || activeTool === 'hand') {
+                      e.stopPropagation();
+                      if (match.globalIndex !== undefined) {
+                        setActiveSearchMatchIndex(match.globalIndex);
+                      }
+                    }
+                  }}
+                  className={`rounded-[3px] transition-all duration-150 ${
+                    activeTool === 'select' || activeTool === 'hand'
+                      ? 'pointer-events-auto cursor-pointer'
+                      : 'pointer-events-none'
+                  } ${
+                    isFirstOrActive
+                      ? 'bg-amber-400/85 border-2 border-amber-600 shadow-[0_0_12px_rgba(245,158,11,0.95)] ring-2 ring-amber-400/60 animate-pulse'
+                      : 'bg-yellow-300/55 border border-yellow-500/80 hover:bg-yellow-400/75 hover:border-yellow-600'
+                  }`}
+                  title={`Match ${match.matchIndexOnPage + 1}: "${match.text}"`}
+                />
+              );
+            })}
+          </div>
+        )}
+
+        {/* Render Text Annotations as interactive draggable and editable elements */}
         {annotations
-          .filter((a) => a.pageNumber === currentPage && (a.type === 'text' || a.type === 'image' || a.type === 'signature'))
+          .filter(
+            (a) =>
+              a.pageNumber === currentPage &&
+              (a.type === 'text' || a.type === 'image' || a.type === 'signature')
+          )
           .map((ann) => {
             const isSelected = ann.id === selectedAnnotationId;
+            const isDraggingThis = dragState?.annotationId === ann.id;
+            const canMove = activeTool === 'hand' || activeTool === 'select' || isSelected;
 
             if (ann.type === 'text') {
               const t = ann as TextAnnotation;
               return (
                 <div
                   key={ann.id}
+                  onMouseDown={(e) => {
+                    if (activeTool === 'eraser') {
+                      e.stopPropagation();
+                      deleteAnnotation(ann.id);
+                      return;
+                    }
+                    if (canMove) {
+                      e.stopPropagation();
+                      startDragAnnotation(ann, e.clientX, e.clientY);
+                    } else {
+                      setSelectedAnnotationId(ann.id);
+                    }
+                  }}
+                  onTouchStart={(e) => {
+                    if (activeTool === 'eraser') {
+                      e.stopPropagation();
+                      deleteAnnotation(ann.id);
+                      return;
+                    }
+                    if (canMove && e.touches[0]) {
+                      e.stopPropagation();
+                      startDragAnnotation(ann, e.touches[0].clientX, e.touches[0].clientY);
+                    } else {
+                      setSelectedAnnotationId(ann.id);
+                    }
+                  }}
                   onClick={(e) => {
                     e.stopPropagation();
                     setSelectedAnnotationId(ann.id);
                   }}
-                  onDoubleClick={() => {
+                  onDoubleClick={(e) => {
+                    e.stopPropagation();
                     const newText = prompt('Edit text:', t.text);
                     if (newText !== null) updateAnnotation(ann.id, { text: newText } as any);
                   }}
@@ -749,9 +1152,20 @@ export const PdfCanvasViewer: React.FC<PdfCanvasViewerProps> = ({ onSelectAnnota
                     fontWeight: t.fontWeight,
                     fontStyle: t.fontStyle,
                   }}
-                  className={`absolute cursor-move select-none p-1 rounded transition z-30 ${
-                    isSelected ? 'ring-2 ring-brand-gold bg-amber-500/10' : 'hover:ring-1 hover:ring-zinc-400'
+                  className={`absolute select-none p-1 rounded transition-shadow z-30 ${
+                    isDraggingThis
+                      ? 'cursor-grabbing ring-2 ring-brand-gold bg-amber-500/20 shadow-2xl scale-105'
+                      : canMove
+                      ? activeTool === 'hand'
+                        ? 'cursor-grab hover:ring-2 hover:ring-brand-gold/60'
+                        : 'cursor-move hover:ring-2 hover:ring-brand-gold/60'
+                      : 'cursor-pointer'
+                  } ${
+                    isSelected
+                      ? 'ring-2 ring-brand-gold bg-amber-500/10 shadow-lg'
+                      : ''
                   }`}
+                  title="Click and drag with Hand or Select tool to move. Double-click to edit text."
                 >
                   {t.text}
                 </div>
@@ -763,6 +1177,32 @@ export const PdfCanvasViewer: React.FC<PdfCanvasViewerProps> = ({ onSelectAnnota
               return (
                 <div
                   key={ann.id}
+                  onMouseDown={(e) => {
+                    if (activeTool === 'eraser') {
+                      e.stopPropagation();
+                      deleteAnnotation(ann.id);
+                      return;
+                    }
+                    if (canMove) {
+                      e.stopPropagation();
+                      startDragAnnotation(ann, e.clientX, e.clientY);
+                    } else {
+                      setSelectedAnnotationId(ann.id);
+                    }
+                  }}
+                  onTouchStart={(e) => {
+                    if (activeTool === 'eraser') {
+                      e.stopPropagation();
+                      deleteAnnotation(ann.id);
+                      return;
+                    }
+                    if (canMove && e.touches[0]) {
+                      e.stopPropagation();
+                      startDragAnnotation(ann, e.touches[0].clientX, e.touches[0].clientY);
+                    } else {
+                      setSelectedAnnotationId(ann.id);
+                    }
+                  }}
                   onClick={(e) => {
                     e.stopPropagation();
                     setSelectedAnnotationId(ann.id);
@@ -774,16 +1214,32 @@ export const PdfCanvasViewer: React.FC<PdfCanvasViewerProps> = ({ onSelectAnnota
                     height: `${ann.height * scale}px`,
                     opacity: ann.opacity,
                   }}
-                  className={`absolute cursor-move select-none transition z-30 ${
-                    isSelected ? 'ring-2 ring-brand-gold bg-amber-500/10' : 'hover:ring-1 hover:ring-zinc-400'
+                  className={`absolute select-none transition-shadow z-30 ${
+                    isDraggingThis
+                      ? 'cursor-grabbing ring-2 ring-brand-gold bg-amber-500/20 shadow-2xl scale-105'
+                      : canMove
+                      ? activeTool === 'hand'
+                        ? 'cursor-grab hover:ring-2 hover:ring-brand-gold/60'
+                        : 'cursor-move hover:ring-2 hover:ring-brand-gold/60'
+                      : 'cursor-pointer'
+                  } ${
+                    isSelected
+                      ? 'ring-2 ring-brand-gold bg-amber-500/10 shadow-lg'
+                      : ''
                   }`}
+                  title="Click and drag with Hand or Select tool to move."
                 >
-                  <img src={img.dataUrl} alt="Overlay" className="w-full h-full object-contain pointer-events-none" />
+                  <img
+                    src={img.dataUrl}
+                    alt="Overlay"
+                    className="w-full h-full object-contain pointer-events-none"
+                  />
                 </div>
               );
             }
             return null;
           })}
+        </div>
       </div>
 
       {/* Direct Text Edit Modal Dialog */}

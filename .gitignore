@@ -34,3 +34,6 @@ temp/
 uploads/
 tmp/
 scratch/
+.next/
+__pycache__/
+*.pyc

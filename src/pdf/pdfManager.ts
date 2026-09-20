@@ -238,6 +238,113 @@ export async function searchPdf(
   return results;
 }
 
+export function extractMatchesFromTextItems(
+  textItems: import('../types').ExtractedTextItem[],
+  query: string,
+  pageNumber: number,
+  startGlobalIndex = 0
+): import('../types').SearchMatch[] {
+  const cleanQuery = query.trim().toLowerCase();
+  if (!cleanQuery) return [];
+
+  const matches: import('../types').SearchMatch[] = [];
+  let globalIndex = startGlobalIndex;
+  let matchOnPage = 0;
+
+  // Offscreen canvas for precise proportional font character measurements
+  let measureCtx: CanvasRenderingContext2D | null = null;
+  if (typeof document !== 'undefined') {
+    try {
+      const canvas = document.createElement('canvas');
+      measureCtx = canvas.getContext('2d');
+    } catch {
+      measureCtx = null;
+    }
+  }
+
+  for (let i = 0; i < textItems.length; i++) {
+    const item = textItems[i];
+    const str = item.str || '';
+    const lower = str.toLowerCase();
+    let searchIdx = 0;
+
+    while ((searchIdx = lower.indexOf(cleanQuery, searchIdx)) !== -1) {
+      const matchStart = searchIdx;
+      const matchLen = cleanQuery.length;
+      const matchEnd = matchStart + matchLen;
+
+      let matchX = item.x;
+      let matchWidth = item.width;
+
+      if (measureCtx) {
+        try {
+          measureCtx.font = `${item.fontSize}px ${item.fontName || 'Helvetica, Arial, sans-serif'}`;
+          const preText = str.substring(0, matchStart);
+          const matchSub = str.substring(matchStart, matchEnd);
+          const preW = measureCtx.measureText(preText).width;
+          const matchW = measureCtx.measureText(matchSub).width;
+          const fullW = measureCtx.measureText(str).width;
+          const ratio = fullW > 0 ? item.width / fullW : 1;
+          matchX = item.x + preW * ratio;
+          matchWidth = matchW * ratio;
+        } catch {
+          const charW = item.width / Math.max(str.length, 1);
+          matchX = item.x + matchStart * charW;
+          matchWidth = matchLen * charW;
+        }
+      } else {
+        const charW = item.width / Math.max(str.length, 1);
+        matchX = item.x + matchStart * charW;
+        matchWidth = matchLen * charW;
+      }
+
+      const startSnippet = Math.max(0, matchStart - 25);
+      const endSnippet = Math.min(str.length, matchEnd + 25);
+      const snippet = `...${str.substring(startSnippet, endSnippet).trim()}...`;
+
+      matches.push({
+        id: `match-p${pageNumber}-${matchOnPage}-${globalIndex}`,
+        pageNumber,
+        matchIndexOnPage: matchOnPage,
+        globalIndex,
+        text: str.substring(matchStart, matchEnd),
+        x: Math.round(matchX),
+        y: Math.round(item.y),
+        width: Math.max(Math.round(matchWidth), 8),
+        height: Math.max(Math.round(item.height), Math.round(item.fontSize * 1.15)),
+        snippet,
+      });
+
+      matchOnPage++;
+      globalIndex++;
+      searchIdx += Math.max(1, matchLen);
+    }
+  }
+
+  return matches;
+}
+
+export async function findPdfSearchMatches(
+  pdfDoc: pdfjsLib.PDFDocumentProxy,
+  query: string,
+  rotation = 0
+): Promise<import('../types').SearchMatch[]> {
+  const cleanQuery = query.trim().toLowerCase();
+  if (!cleanQuery) return [];
+
+  const allMatches: import('../types').SearchMatch[] = [];
+  let currentGlobalIdx = 0;
+
+  for (let pageNum = 1; pageNum <= pdfDoc.numPages; pageNum++) {
+    const textItems = await getPageTextItemsWithCoords(pdfDoc, pageNum, 1.0, rotation);
+    const pageMatches = extractMatchesFromTextItems(textItems, query, pageNum, currentGlobalIdx);
+    allMatches.push(...pageMatches);
+    currentGlobalIdx += pageMatches.length;
+  }
+
+  return allMatches;
+}
+
 export async function getPageTextItemsWithCoords(
   pdfDoc: pdfjsLib.PDFDocumentProxy,
   pageNumber: number,

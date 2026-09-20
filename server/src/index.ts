@@ -19,12 +19,15 @@ const execFileAsync = promisify(execFile);
 const app = express();
 const PORT = process.env.PORT || 4000;
 
-// Resolve Python executable path (venv preferred, fallback to system)
 function getPythonPath(): string {
-  const venvWin = path.resolve(__dirname, '..', '.venv', 'Scripts', 'python.exe');
-  const venvLinux = path.resolve(__dirname, '..', '.venv', 'bin', 'python');
-  if (fs.existsSync(venvWin)) return venvWin;
-  if (fs.existsSync(venvLinux)) return venvLinux;
+  const explicitPaths = [
+    'C:\\Python314\\python.exe',
+    path.resolve(__dirname, '..', '.venv', 'Scripts', 'python.exe'),
+    path.resolve(__dirname, '..', '.venv', 'bin', 'python'),
+  ];
+  for (const p of explicitPaths) {
+    if (fs.existsSync(p)) return p;
+  }
   return process.platform === 'win32' ? 'python' : 'python3';
 }
 
@@ -70,13 +73,15 @@ async function withTempFiles<T>(
 }
 
 // Health check endpoint (required by Render)
-app.get('/health', (_req: Request, res: Response) => {
+const handleHealth = (_req: Request, res: Response) => {
   res.status(200).json({
     status: 'ok',
     service: 'PDF EDITOR BY UIKEY AI Backend',
-    features: ['layout-aware-docx', 'aes-256-security', 'raw-image-extractor', 'stream-compress']
+    features: ['layout-aware-docx', 'aes-256-security', 'raw-image-extractor', 'stream-compress', 'excel-to-pdf', 'word-to-pdf', 'pdf-to-excel', 'ocr-engine']
   });
-});
+};
+app.get('/health', handleHealth);
+app.get('/api/health', handleHealth);
 
 // 1. Layout-Aware PDF to Word Conversion (pdf2docx)
 app.post('/api/convert/pdf-to-word', upload.single('file'), async (req: Request, res: Response) => {
@@ -121,6 +126,178 @@ app.post('/api/convert/pdf-to-word', upload.single('file'), async (req: Request,
       error: 'Layout-aware conversion failed',
       details: err?.message || 'Engine error',
       suggestion: 'Browser-based fallback conversion is available in the editor.'
+    });
+  }
+});
+
+// 1b. Excel to PDF Conversion (openpyxl + PyMuPDF)
+app.post('/api/convert/excel-to-pdf', upload.single('file'), async (req: Request, res: Response) => {
+  if (!req.file) {
+    res.status(400).json({ error: 'No Excel file uploaded' });
+    return;
+  }
+
+  try {
+    const pythonExe = getPythonPath();
+    const scriptPath = getPythonScriptPath('excel_to_pdf.py');
+
+    await withTempFiles('excel2pdf', async (tempDir) => {
+      const origExt = path.extname(req.file!.originalname) || '.xlsx';
+      const inputExcelPath = path.join(tempDir, `input${origExt}`);
+      const outputPdfPath = path.join(tempDir, 'output.pdf');
+
+      fs.writeFileSync(inputExcelPath, req.file!.buffer);
+
+      await execFileAsync(pythonExe, [scriptPath, inputExcelPath, outputPdfPath], {
+        timeout: 120000
+      });
+
+      if (!fs.existsSync(outputPdfPath)) {
+        throw new Error('PDF document generation failed to emit output file.');
+      }
+
+      const pdfBytes = fs.readFileSync(outputPdfPath);
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', 'attachment; filename="converted_spreadsheet.pdf"');
+      res.send(pdfBytes);
+    });
+  } catch (err: any) {
+    console.error('excel-to-pdf error:', err);
+    res.status(500).json({
+      error: 'Excel to PDF conversion failed',
+      details: err?.message || 'Engine error'
+    });
+  }
+});
+
+// 1c. Word to PDF Conversion (python-docx + PyMuPDF)
+app.post('/api/convert/word-to-pdf', upload.single('file'), async (req: Request, res: Response) => {
+  if (!req.file) {
+    res.status(400).json({ error: 'No Word file uploaded' });
+    return;
+  }
+
+  try {
+    const pythonExe = getPythonPath();
+    const scriptPath = getPythonScriptPath('word_to_pdf.py');
+
+    await withTempFiles('word2pdf', async (tempDir) => {
+      const inputDocxPath = path.join(tempDir, 'input.docx');
+      const outputPdfPath = path.join(tempDir, 'output.pdf');
+
+      fs.writeFileSync(inputDocxPath, req.file!.buffer);
+
+      await execFileAsync(pythonExe, [scriptPath, inputDocxPath, outputPdfPath], {
+        timeout: 120000
+      });
+
+      if (!fs.existsSync(outputPdfPath)) {
+        throw new Error('PDF generation failed to emit output file.');
+      }
+
+      const pdfBytes = fs.readFileSync(outputPdfPath);
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', 'attachment; filename="converted_document.pdf"');
+      res.send(pdfBytes);
+    });
+  } catch (err: any) {
+    console.error('word-to-pdf error:', err);
+    res.status(500).json({
+      error: 'Word to PDF conversion failed',
+      details: err?.message || 'Engine error'
+    });
+  }
+});
+
+// 1d. PDF to Excel Table Extraction (PyMuPDF + openpyxl)
+app.post('/api/convert/pdf-to-excel', upload.single('file'), async (req: Request, res: Response) => {
+  if (!req.file) {
+    res.status(400).json({ error: 'No PDF file uploaded' });
+    return;
+  }
+
+  try {
+    const pythonExe = getPythonPath();
+    const scriptPath = getPythonScriptPath('pdf_to_excel.py');
+
+    await withTempFiles('pdf2excel', async (tempDir) => {
+      const inputPdfPath = path.join(tempDir, 'input.pdf');
+      const outputXlsxPath = path.join(tempDir, 'output.xlsx');
+
+      fs.writeFileSync(inputPdfPath, req.file!.buffer);
+
+      await execFileAsync(pythonExe, [scriptPath, inputPdfPath, outputXlsxPath], {
+        timeout: 120000
+      });
+
+      if (!fs.existsSync(outputXlsxPath)) {
+        throw new Error('Excel workbook generation failed to emit output file.');
+      }
+
+      const xlsxBytes = fs.readFileSync(outputXlsxPath);
+      res.setHeader(
+        'Content-Type',
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+      );
+      res.setHeader('Content-Disposition', 'attachment; filename="extracted_tables.xlsx"');
+      res.send(xlsxBytes);
+    });
+  } catch (err: any) {
+    console.error('pdf-to-excel error:', err);
+    res.status(500).json({
+      error: 'PDF to Excel conversion failed',
+      details: err?.message || 'Engine error'
+    });
+  }
+});
+
+// 1e. OCR Document Text & Word Extraction (PyMuPDF OCR)
+app.post('/api/ocr/extract', upload.single('file'), async (req: Request, res: Response) => {
+  if (!req.file) {
+    res.status(400).json({ error: 'No file uploaded for OCR' });
+    return;
+  }
+
+  const format = req.body.format === 'docx' ? 'docx' : 'txt';
+  const language = req.body.language || 'eng';
+
+  try {
+    const pythonExe = getPythonPath();
+    const scriptPath = getPythonScriptPath('ocr_engine.py');
+
+    await withTempFiles('ocr', async (tempDir) => {
+      const origExt = path.extname(req.file!.originalname) || '.pdf';
+      const inputPath = path.join(tempDir, `input${origExt}`);
+      const outputPath = path.join(tempDir, `output.${format}`);
+
+      fs.writeFileSync(inputPath, req.file!.buffer);
+
+      await execFileAsync(pythonExe, [scriptPath, inputPath, outputPath, format, language], {
+        timeout: 180000
+      });
+
+      if (!fs.existsSync(outputPath)) {
+        throw new Error('OCR process failed to emit output file.');
+      }
+
+      const resultBytes = fs.readFileSync(outputPath);
+      if (format === 'docx') {
+        res.setHeader(
+          'Content-Type',
+          'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+        );
+        res.setHeader('Content-Disposition', 'attachment; filename="ocr_extracted_document.docx"');
+      } else {
+        res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+        res.setHeader('Content-Disposition', 'attachment; filename="ocr_extracted_text.txt"');
+      }
+      res.send(resultBytes);
+    });
+  } catch (err: any) {
+    console.error('ocr error:', err);
+    res.status(500).json({
+      error: 'OCR extraction failed',
+      details: err?.message || 'Engine error'
     });
   }
 });
@@ -275,6 +452,6 @@ app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
   });
 });
 
-app.listen(PORT, () => {
-  console.log(`UIKEY AI PDF Backend service running on port ${PORT}`);
+app.listen(Number(PORT), '0.0.0.0', () => {
+  console.log(`UIKEY AI PDF Backend service running on port ${PORT} (0.0.0.0)`);
 });

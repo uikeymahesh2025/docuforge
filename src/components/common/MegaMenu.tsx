@@ -37,12 +37,15 @@ import {
   ImageDown,
   Columns2,
   Hash,
+  FileSpreadsheet,
+  Table,
+  ScanText,
 } from 'lucide-react';
 import { ToolItem, ToolCategory } from '../../types';
 import { TOOLS, CATEGORY_LABELS } from '../../utils/toolsCatalog';
 
 // Map icon strings to Lucide components
-const ICON_MAP: Record<string, React.ElementType> = {
+export const ICON_MAP: Record<string, React.ElementType> = {
   Combine,
   Split,
   LayoutGrid,
@@ -77,6 +80,9 @@ const ICON_MAP: Record<string, React.ElementType> = {
   ImageDown,
   Columns2,
   Hash,
+  FileSpreadsheet,
+  Table,
+  ScanText,
 };
 
 interface MegaMenuProps {

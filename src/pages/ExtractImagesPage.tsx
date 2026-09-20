@@ -36,7 +36,7 @@ export const ExtractImagesPage: React.FC = () => {
 
       try {
         const formData = new FormData();
-        formData.append('file', new Blob([pdfBytes], { type: 'application/pdf' }), file.name);
+        formData.append('file', new Blob([pdfBytes as unknown as BlobPart], { type: 'application/pdf' }), file.name);
 
         const resp = await fetch('/api/pdf/extract-images', {
           method: 'POST',
@@ -131,6 +131,8 @@ export const ExtractImagesPage: React.FC = () => {
         onClose={() => setZipResult(null)}
         resultData={zipResult?.blob || null}
         defaultFileName={zipResult?.filename || 'extracted_images.zip'}
+        title="Your Extracted Images are Ready!"
+        subtitle="Embedded pictures have been extracted and packaged into a ZIP archive."
         isZip={true}
         onReset={() => {
           setZipResult(null);

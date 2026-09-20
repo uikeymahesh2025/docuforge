@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { EditorTool, AnyAnnotation, DirectTextEdit, ImageReplacement, ExtractedTextItem } from '../types';
+import { EditorTool, AnyAnnotation, DirectTextEdit, ImageReplacement, ExtractedTextItem, SearchMatch } from '../types';
 
 interface EditorState {
   pdfBytes: Uint8Array | null;
@@ -16,8 +16,11 @@ interface EditorState {
   extractedPageTextItems: ExtractedTextItem[];
   history: AnyAnnotation[][];
   historyIndex: number;
+  isSearchOpen: boolean;
   isSearching: boolean;
   searchQuery: string;
+  searchMatches: SearchMatch[];
+  activeSearchMatchIndex: number;
 
   // Tool customization properties
   strokeColor: string;
@@ -36,6 +39,9 @@ interface EditorState {
   setRotation: (rot: number | ((prev: number) => number)) => void;
   setActiveTool: (tool: EditorTool) => void;
   setSelectedAnnotationId: (id: string | null) => void;
+  fitToWidth: (() => void) | null;
+  fitToPage: (() => void) | null;
+  setFitHandlers: (handlers: { fitToWidth: () => void; fitToPage: () => void } | null) => void;
   
   // Customization setters
   setStrokeColor: (color: string) => void;
@@ -44,9 +50,16 @@ interface EditorState {
   setFontSize: (s: number) => void;
   setFontFamily: (f: string) => void;
   setTextColor: (color: string) => void;
+  setColor: (color: string) => void;
   setOpacity: (o: number) => void;
+  setIsSearchOpen: (open: boolean) => void;
   setIsSearching: (val: boolean) => void;
   setSearchQuery: (query: string) => void;
+  setSearchMatches: (matches: SearchMatch[]) => void;
+  setActiveSearchMatchIndex: (index: number) => void;
+  nextSearchMatch: () => void;
+  prevSearchMatch: () => void;
+  clearSearch: () => void;
 
   // Direct Text Edits & Image Replacements
   addDirectTextEdit: (edit: DirectTextEdit) => void;
@@ -72,14 +85,19 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   rotation: 0,
   activeTool: 'select',
   selectedAnnotationId: null,
+  fitToWidth: null,
+  fitToPage: null,
   annotations: [],
   directTextEdits: [],
   imageReplacements: [],
   extractedPageTextItems: [],
   history: [[]],
   historyIndex: 0,
+  isSearchOpen: false,
   isSearching: false,
   searchQuery: '',
+  searchMatches: [],
+  activeSearchMatchIndex: -1,
 
   strokeColor: '#D4AF37', // UIKEY AI gold accent default
   fillColor: 'transparent',
@@ -104,6 +122,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       history: [[]],
       historyIndex: 0,
       selectedAnnotationId: null,
+      searchMatches: [],
+      activeSearchMatchIndex: -1,
     });
   },
 
@@ -120,6 +140,11 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       history: [[]],
       historyIndex: 0,
       selectedAnnotationId: null,
+      isSearchOpen: false,
+      isSearching: false,
+      searchQuery: '',
+      searchMatches: [],
+      activeSearchMatchIndex: -1,
     });
   },
 
@@ -171,16 +196,57 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 
   setActiveTool: (tool) => set({ activeTool: tool, selectedAnnotationId: null }),
   setSelectedAnnotationId: (id) => set({ selectedAnnotationId: id }),
+  setFitHandlers: (handlers) =>
+    set({
+      fitToWidth: handlers ? handlers.fitToWidth : null,
+      fitToPage: handlers ? handlers.fitToPage : null,
+    }),
 
-  setStrokeColor: (strokeColor) => set({ strokeColor }),
+  setStrokeColor: (strokeColor) => set({ strokeColor, textColor: strokeColor }),
   setFillColor: (fillColor) => set({ fillColor }),
   setStrokeWidth: (strokeWidth) => set({ strokeWidth }),
   setFontSize: (fontSize) => set({ fontSize }),
   setFontFamily: (fontFamily) => set({ fontFamily }),
-  setTextColor: (textColor) => set({ textColor }),
+  setTextColor: (textColor) => set({ textColor, strokeColor: textColor }),
+  setColor: (color) => set({ strokeColor: color, textColor: color }),
   setOpacity: (opacity) => set({ opacity }),
+  setIsSearchOpen: (isSearchOpen) =>
+    set({
+      isSearchOpen,
+      ...(isSearchOpen ? {} : { searchMatches: [], activeSearchMatchIndex: -1, searchQuery: '' }),
+    }),
   setIsSearching: (isSearching) => set({ isSearching }),
   setSearchQuery: (searchQuery) => set({ searchQuery }),
+  setSearchMatches: (searchMatches) =>
+    set({ searchMatches, activeSearchMatchIndex: searchMatches.length > 0 ? 0 : -1 }),
+  setActiveSearchMatchIndex: (activeSearchMatchIndex) => set({ activeSearchMatchIndex }),
+  nextSearchMatch: () => {
+    const { searchMatches, activeSearchMatchIndex } = get();
+    if (searchMatches.length === 0) return;
+    const nextIdx = (activeSearchMatchIndex + 1) % searchMatches.length;
+    const match = searchMatches[nextIdx];
+    set({
+      activeSearchMatchIndex: nextIdx,
+      currentPage: match.pageNumber,
+    });
+  },
+  prevSearchMatch: () => {
+    const { searchMatches, activeSearchMatchIndex } = get();
+    if (searchMatches.length === 0) return;
+    const prevIdx = (activeSearchMatchIndex - 1 + searchMatches.length) % searchMatches.length;
+    const match = searchMatches[prevIdx];
+    set({
+      activeSearchMatchIndex: prevIdx,
+      currentPage: match.pageNumber,
+    });
+  },
+  clearSearch: () =>
+    set({
+      searchQuery: '',
+      searchMatches: [],
+      activeSearchMatchIndex: -1,
+      isSearching: false,
+    }),
 
   addAnnotation: (ann) => {
     const { annotations, history, historyIndex } = get();

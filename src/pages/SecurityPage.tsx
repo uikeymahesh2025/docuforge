@@ -53,7 +53,7 @@ export const SecurityPage: React.FC<SecurityPageProps> = ({ mode }) => {
       setIsProcessing(true);
       try {
         const formData = new FormData();
-        formData.append('file', new Blob([pdfBytes], { type: 'application/pdf' }), file.name);
+        formData.append('file', new Blob([pdfBytes as unknown as BlobPart], { type: 'application/pdf' }), file.name);
         formData.append('password', password);
         formData.append('keyLen', '256');
 
@@ -89,7 +89,7 @@ export const SecurityPage: React.FC<SecurityPageProps> = ({ mode }) => {
       setIsProcessing(true);
       try {
         const formData = new FormData();
-        formData.append('file', new Blob([pdfBytes], { type: 'application/pdf' }), file.name);
+        formData.append('file', new Blob([pdfBytes as unknown as BlobPart], { type: 'application/pdf' }), file.name);
         formData.append('password', password);
 
         const resp = await fetch('/api/pdf/unlock', {
