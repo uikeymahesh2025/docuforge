@@ -885,7 +885,7 @@ export const PdfCanvasViewer: React.FC<PdfCanvasViewerProps> = ({ onSelectAnnota
               </button>
             </div>
             <span className="text-[10px] text-zinc-400 hidden sm:inline">
-              {directTextScope === 'word' ? 'Click any word to edit' : 'Click any full line to edit'}
+              {directTextScope === 'word' ? 'Hover & click any word to edit' : 'Hover & click any line to edit'}
             </span>
           </div>
         </div>
@@ -990,40 +990,58 @@ export const PdfCanvasViewer: React.FC<PdfCanvasViewerProps> = ({ onSelectAnnota
                       (cluster.wordCluster && e.id === cluster.wordCluster.id))
                 )
             )
-            .map((cluster) => (
-              <div
-                key={cluster.id}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setEditingModal({
-                    id: cluster.id,
-                    originalText: cluster.str,
-                    newText: cluster.str,
-                    fontSize: cluster.fontSize,
-                    color: '#000000',
-                    backgroundColor: '#ffffff',
-                    x: cluster.x,
-                    y: cluster.y,
-                    width: cluster.width,
-                    height: cluster.height,
-                    isExistingEdit: false,
-                    scope: directTextScope,
-                    wordCluster: cluster.wordCluster || (directTextScope === 'word' ? cluster : undefined),
-                    lineCluster: cluster.lineCluster || (directTextScope === 'line' ? cluster : undefined),
-                  });
-                }}
-                style={{
-                  position: 'absolute',
-                  left: `${cluster.x * scale}px`,
-                  top: `${cluster.y * scale}px`,
-                  width: `${cluster.width * scale}px`,
-                  height: `${cluster.height * scale}px`,
-                  zIndex: 20,
-                }}
-                className="cursor-text border border-amber-400/30 bg-amber-400/5 hover:border-amber-400 hover:bg-amber-400/25 rounded-xs transition-colors"
-                title={`Click to edit ${directTextScope}: "${cluster.str}"`}
-              />
-            ))}
+            .map((cluster) => {
+              let wordCl = cluster.wordCluster || (directTextScope === 'word' ? cluster : undefined);
+              const lineCl = cluster.lineCluster || (directTextScope === 'line' ? cluster : undefined);
+
+              return (
+                <div
+                  key={cluster.id}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (!wordCl && directTextScope === 'line') {
+                      const rect = e.currentTarget.getBoundingClientRect();
+                      const clickX = (e.clientX - rect.left) / scale + cluster.x;
+                      const words = getWordClusters(extractedPageTextItems).filter(
+                        (w) => w.lineCluster?.id === cluster.id
+                      );
+                      wordCl = words.find((w) => clickX >= w.x - 2 && clickX <= w.x + w.width + 2) || words[0];
+                    }
+
+                    setEditingModal({
+                      id: cluster.id,
+                      originalText: cluster.str,
+                      newText: cluster.str,
+                      fontSize: cluster.fontSize,
+                      color: '#000000',
+                      backgroundColor: '#ffffff',
+                      x: cluster.x,
+                      y: cluster.y,
+                      width: cluster.width,
+                      height: cluster.height,
+                      isExistingEdit: false,
+                      scope: directTextScope,
+                      wordCluster: wordCl,
+                      lineCluster: lineCl,
+                    });
+                  }}
+                  style={{
+                    position: 'absolute',
+                    left: `${cluster.x * scale}px`,
+                    top: `${cluster.y * scale}px`,
+                    width: `${cluster.width * scale}px`,
+                    height: `${cluster.height * scale}px`,
+                    zIndex: 20,
+                  }}
+                  className="cursor-text border border-transparent bg-transparent hover:border-amber-400/90 hover:bg-amber-400/20 hover:shadow-xs rounded-xs transition-colors"
+                  title={
+                    directTextScope === 'word'
+                      ? `Click to edit word: "${cluster.str}"`
+                      : `Click to edit line: "${cluster.str}"`
+                  }
+                />
+              );
+            })}
 
         {/* Render Image Replacements */}
         {imageReplacements
@@ -1325,10 +1343,17 @@ export const PdfCanvasViewer: React.FC<PdfCanvasViewerProps> = ({ onSelectAnnota
             <div className="flex items-center justify-between border-b border-white/10 pb-3">
               <div className="flex items-center gap-2">
                 <span className="w-2 h-2 rounded-full bg-brand-gold"></span>
-                <h3 className="text-sm font-bold text-white">Direct PDF Text Edit</h3>
-                <span className="text-[10px] px-1.5 py-0.5 rounded bg-brand-gold/20 text-brand-gold font-semibold">
-                  {editingModal.isExistingEdit ? 'Edited' : 'Original Text'}
+                <h3 className="text-sm font-bold text-white">
+                  {editingModal.scope === 'line' ? 'Edit Entire Line' : 'Edit Word'}
+                </h3>
+                <span className="text-[10px] px-2 py-0.5 rounded-full bg-brand-gold/20 text-brand-gold font-semibold uppercase tracking-wider">
+                  {editingModal.scope === 'line' ? 'Line Mode' : 'Word Mode'}
                 </span>
+                {editingModal.isExistingEdit && (
+                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-400 font-medium">
+                    Modified
+                  </span>
+                )}
               </div>
               <button
                 onClick={() => setEditingModal(null)}
