@@ -47,10 +47,10 @@ export const CameraScannerModal: React.FC<CameraScannerModalProps> = ({
   onClose,
   onComplete,
 }) => {
-  const [stream, setStream] = useState<MediaStream | null>(null);
-  const [facingMode, setFacingMode] = useState<'environment' | 'user'>('environment');
+  // 1. Stream Lifecycle strictly via useRef (NO STATE RE-RENDERS)
+  const streamRef = useRef<MediaStream | null>(null);
+  const facingModeRef = useRef<'environment' | 'user'>('environment');
   const [torchOn, setTorchOn] = useState(false);
-  const [hasTorch, setHasTorch] = useState(false);
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [isCapturing, setIsCapturing] = useState(false);
   const [showFlash, setShowFlash] = useState(false);
@@ -71,23 +71,33 @@ export const CameraScannerModal: React.FC<CameraScannerModalProps> = ({
   const previewContainerRef = useRef<HTMLDivElement>(null);
   const [displayScale, setDisplayScale] = useState({ scaleX: 1, scaleY: 1, offsetX: 0, offsetY: 0 });
 
-  // Cleanup helper to safely stop all media tracks
+  // 4. Cleanup helper to safely stop all media tracks
   const stopMediaTracks = useCallback(() => {
-    if (stream) {
-      stream.getTracks().forEach((track) => {
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((track) => {
         track.stop();
       });
-      setStream(null);
+      streamRef.current = null;
     }
-  }, [stream]);
+  }, []);
 
-  // Start camera stream
+  // 2. Simple Video Attachment (NO STATE RE-RENDERS):
+  // When stream is acquired, attach directly to videoRef with onloadedmetadata
+  const attachStreamToVideo = useCallback((stream: MediaStream) => {
+    streamRef.current = stream;
+    if (videoRef.current) {
+      videoRef.current.srcObject = stream;
+      videoRef.current.onloadedmetadata = () => {
+        videoRef.current?.play().catch(() => {});
+      };
+    }
+  }, []);
+
   const startCamera = useCallback(async (mode: 'environment' | 'user') => {
     setCameraError(null);
-    // Stop prior stream if any
-    if (stream) {
-      stream.getTracks().forEach((t) => t.stop());
-      setStream(null);
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((t) => t.stop());
+      streamRef.current = null;
     }
 
     try {
@@ -95,71 +105,86 @@ export const CameraScannerModal: React.FC<CameraScannerModalProps> = ({
         throw new Error('Camera access is not supported by your browser or connection.');
       }
 
-      const constraints: MediaStreamConstraints = {
-        audio: false,
-        video: {
-          facingMode: { ideal: mode },
-          width: { ideal: 1920, min: 1280 },
-          height: { ideal: 1080, min: 720 },
-        },
-      };
-
-      const mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
-      setStream(mediaStream);
-
-      // Check for torch capability
-      const videoTrack = mediaStream.getVideoTracks()[0];
-      if (videoTrack) {
-        const capabilities = videoTrack.getCapabilities ? (videoTrack.getCapabilities() as any) : {};
-        setHasTorch(Boolean(capabilities && capabilities.torch));
-      }
-
-      if (videoRef.current) {
-        videoRef.current.srcObject = mediaStream;
-        await videoRef.current.play().catch(() => {});
-      }
-    } catch (err: any) {
-      console.warn('Camera initialization failed with ideal constraints, trying fallback:', err);
-      // Fallback with basic video constraint
+      let stream: MediaStream;
       try {
-        const basicStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
-        setStream(basicStream);
-        if (videoRef.current) {
-          videoRef.current.srcObject = basicStream;
-          await videoRef.current.play().catch(() => {});
-        }
-      } catch (fallbackErr: any) {
-        setCameraError(fallbackErr.message || 'Unable to access camera. Please allow camera permissions.');
+        stream = await navigator.mediaDevices.getUserMedia({
+          audio: false,
+          video: {
+            facingMode: { ideal: mode },
+            width: { ideal: 1920 },
+            height: { ideal: 1080 },
+          },
+        });
+      } catch {
+        stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
       }
-    }
-  }, [stream]);
 
-  // Handle open / close lifecycle
-  useEffect(() => {
-    if (isOpen) {
-      startCamera(facingMode);
-    } else {
-      stopMediaTracks();
-      setPages([]);
-      setActivePageIndex(null);
+      attachStreamToVideo(stream);
+    } catch (err: any) {
+      setCameraError(err?.message || 'Unable to access camera. Please allow camera permissions.');
     }
-    return () => {
-      stopMediaTracks();
+  }, [attachStreamToVideo]);
+
+  // 4. Strict lifecycle: stream acquired on mount, full cleanup on unmount
+  useEffect(() => {
+    let isCancelled = false;
+
+    const init = async () => {
+      try {
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+          throw new Error('Camera access is not supported by your browser or connection.');
+        }
+
+        let stream: MediaStream;
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({
+            audio: false,
+            video: {
+              facingMode: { ideal: facingModeRef.current },
+              width: { ideal: 1920 },
+              height: { ideal: 1080 },
+            },
+          });
+        } catch {
+          stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+        }
+
+        if (isCancelled) {
+          stream.getTracks().forEach((t) => t.stop());
+          return;
+        }
+
+        attachStreamToVideo(stream);
+      } catch (err: any) {
+        if (!isCancelled) {
+          setCameraError(err?.message || 'Unable to access camera. Please allow camera permissions.');
+        }
+      }
     };
-  }, [isOpen]);
+
+    init();
+
+    return () => {
+      isCancelled = true;
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach((track) => track.stop());
+        streamRef.current = null;
+      }
+    };
+  }, [attachStreamToVideo]);
 
   // Switch camera facing mode
   const handleFlipCamera = async () => {
-    const nextMode = facingMode === 'environment' ? 'user' : 'environment';
-    setFacingMode(nextMode);
+    const nextMode = facingModeRef.current === 'environment' ? 'user' : 'environment';
+    facingModeRef.current = nextMode;
     setTorchOn(false);
     await startCamera(nextMode);
   };
 
   // Toggle torch / flashlight
   const handleToggleTorch = async () => {
-    if (!stream) return;
-    const videoTrack = stream.getVideoTracks()[0];
+    if (!streamRef.current) return;
+    const videoTrack = streamRef.current.getVideoTracks()[0];
     if (!videoTrack) return;
     try {
       const nextState = !torchOn;
@@ -168,7 +193,7 @@ export const CameraScannerModal: React.FC<CameraScannerModalProps> = ({
       });
       setTorchOn(nextState);
     } catch (err) {
-      console.warn('Torch toggle failed:', err);
+      console.warn('Torch toggle failed or unsupported:', err);
     }
   };
 
@@ -201,10 +226,6 @@ export const CameraScannerModal: React.FC<CameraScannerModalProps> = ({
       ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
       const dataUrl = canvas.toDataURL('image/jpeg', 0.95);
 
-      // Pre-calculate auto quad in background for instant responsiveness if user toggles perspective mode
-      const imgEl = await loadImage(dataUrl);
-      const detectedQuad = autoDetectDocumentQuad(imgEl);
-
       const newPage: ScannedPage = {
         id: Math.random().toString(36).substring(2, 9),
         name: `Scanned Page ${pages.length + 1}.jpg`,
@@ -213,8 +234,8 @@ export const CameraScannerModal: React.FC<CameraScannerModalProps> = ({
         width: canvas.width,
         height: canvas.height,
         rotation: 0,
-        mode: 'default', // Default is Original as specified
-        quad: detectedQuad,
+        mode: 'default',
+        quad: defaultQuad(canvas.width, canvas.height),
       };
 
       setPages((prev) => [...prev, newPage]);
@@ -229,8 +250,20 @@ export const CameraScannerModal: React.FC<CameraScannerModalProps> = ({
   const activePage = activePageIndex !== null ? pages[activePageIndex] : null;
 
   // Toggle mode for inspected page (Default vs Auto Perspective / Crop)
-  const handleTogglePageMode = (mode: 'default' | 'perspective') => {
-    if (activePageIndex === null) return;
+  const handleTogglePageMode = async (mode: 'default' | 'perspective') => {
+    if (activePageIndex === null || !activePage) return;
+    if (mode === 'perspective' && activePage.mode === 'default') {
+      try {
+        const img = await loadImage(activePage.currentDataUrl);
+        const detected = autoDetectDocumentQuad(img);
+        setPages((prev) =>
+          prev.map((p, idx) => (idx === activePageIndex ? { ...p, mode, quad: detected } : p))
+        );
+        return;
+      } catch (err) {
+        console.warn('Auto perspective detection error:', err);
+      }
+    }
     setPages((prev) =>
       prev.map((p, idx) => (idx === activePageIndex ? { ...p, mode } : p))
     );
@@ -499,7 +532,7 @@ export const CameraScannerModal: React.FC<CameraScannerModalProps> = ({
         {/* Right Header Actions */}
         <div className="flex items-center gap-2">
           {/* Torch toggle */}
-          {hasTorch && activePageIndex === null && (
+          {activePageIndex === null && (
             <button
               onClick={handleToggleTorch}
               className={`p-2 rounded-xl border transition ${
@@ -549,7 +582,7 @@ export const CameraScannerModal: React.FC<CameraScannerModalProps> = ({
               <p className="text-rose-400 font-bold mb-2">Camera Access Denied or Unavailable</p>
               <p className="text-zinc-400 text-xs mb-4 leading-relaxed">{cameraError}</p>
               <button
-                onClick={() => startCamera(facingMode)}
+                onClick={() => startCamera(facingModeRef.current)}
                 className="px-4 py-2 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs font-semibold transition"
               >
                 Retry Camera

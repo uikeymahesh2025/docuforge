@@ -519,11 +519,13 @@ export const ScanToPdfPage: React.FC = () => {
       )}
 
       {/* Fullscreen Camera Scanner Modal */}
-      <CameraScannerModal
-        isOpen={isCameraOpen}
-        onClose={() => setIsCameraOpen(false)}
-        onComplete={handleCameraPagesScanned}
-      />
+      {isCameraOpen && (
+        <CameraScannerModal
+          isOpen={isCameraOpen}
+          onClose={() => setIsCameraOpen(false)}
+          onComplete={handleCameraPagesScanned}
+        />
+      )}
 
       {/* Interactive Image Edit Modal */}
       {editingPage && (
