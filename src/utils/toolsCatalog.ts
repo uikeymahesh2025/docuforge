@@ -107,15 +107,6 @@ export const TOOLS: ToolItem[] = [
 
   // Convert to PDF
   {
-    id: 'scan-to-pdf',
-    name: 'Document Camera Scanner',
-    description: 'Scan physical papers, notes & receipts with live camera, rear lens priority & auto-perspective crop.',
-    category: 'convert-to',
-    path: '/scan-to-pdf',
-    icon: 'Camera',
-    badge: 'New',
-  },
-  {
     id: 'image-to-pdf',
     name: 'Image to PDF',
     description: 'Convert JPG, PNG, WEBP images into a clean, beautifully formatted PDF.',
