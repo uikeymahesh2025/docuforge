@@ -980,7 +980,16 @@ export const PdfCanvasViewer: React.FC<PdfCanvasViewerProps> = ({ onSelectAnnota
         {/* When activeTool === 'direct-text', show interactive highlight boxes over all unedited text clusters */}
         {activeTool === 'direct-text' &&
           displayedClusters
-            .filter((cluster) => !directTextEdits.some((e) => e.pageNumber === currentPage && e.id === cluster.id))
+            .filter(
+              (cluster) =>
+                !directTextEdits.some(
+                  (e) =>
+                    e.pageNumber === currentPage &&
+                    (e.id === cluster.id ||
+                      (cluster.lineCluster && e.id === cluster.lineCluster.id) ||
+                      (cluster.wordCluster && e.id === cluster.wordCluster.id))
+                )
+            )
             .map((cluster) => (
               <div
                 key={cluster.id}

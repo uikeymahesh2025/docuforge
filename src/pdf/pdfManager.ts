@@ -262,8 +262,10 @@ export function extractMatchesFromTextItems(
     }
   }
 
-  for (let i = 0; i < textItems.length; i++) {
-    const item = textItems[i];
+  const itemsToSearch = cleanQuery.includes(' ') ? getLineClusters(textItems) : textItems;
+
+  for (let i = 0; i < itemsToSearch.length; i++) {
+    const item = itemsToSearch[i];
     const str = normalizeDevanagariText(item.str || '');
     const lower = str.toLowerCase();
     let searchIdx = 0;
@@ -402,7 +404,7 @@ export function clusterPageTextItems(
   for (const item of rawItems) {
     const rawStr = item.str || '';
     if (rawStr.includes(' ') && rawStr.trim().includes(' ')) {
-      const words = rawStr.split(/(\s+)/);
+      const tokens = rawStr.split(/(\s+)/);
       let runningCharIdx = 0;
       const fullTextLen = Math.max(rawStr.length, 1);
 
@@ -417,12 +419,15 @@ export function clusterPageTextItems(
       const totalMeasuredW = measureCtx ? measureCtx.measureText(rawStr).width : item.width;
       const ratio = totalMeasuredW > 0 ? item.width / totalMeasuredW : 1;
 
-      for (let w = 0; w < words.length; w++) {
-        const wordToken = words[w];
-        if (!wordToken) continue;
+      for (let w = 0; w < tokens.length; w++) {
+        const token = tokens[w];
+        if (!token) continue;
 
-        if (/^\s+$/.test(wordToken)) {
-          runningCharIdx += wordToken.length;
+        if (/^\s+$/.test(token)) {
+          runningCharIdx += token.length;
+          if (tokenizedSpans.length > 0) {
+            tokenizedSpans[tokenizedSpans.length - 1].wordBreakAfter = true;
+          }
           continue;
         }
 
@@ -432,32 +437,39 @@ export function clusterPageTextItems(
 
         if (measureCtx) {
           const preW = measureCtx.measureText(preStr).width * ratio;
-          const tokenMeasuredW = measureCtx.measureText(wordToken).width * ratio;
+          const tokenMeasuredW = measureCtx.measureText(token).width * ratio;
           tokenX = Math.round(item.x + preW);
-          tokenW = Math.max(Math.round(tokenMeasuredW), 6);
+          tokenW = Math.max(Math.round(tokenMeasuredW), 4);
         } else {
           tokenX = Math.round(item.x + (runningCharIdx / fullTextLen) * item.width);
-          tokenW = Math.max(Math.round((wordToken.length / fullTextLen) * item.width), 6);
+          tokenW = Math.max(Math.round((token.length / fullTextLen) * item.width), 4);
         }
 
         tokenizedSpans.push({
           id: `${item.id}-w${w}`,
-          str: wordToken,
+          str: token,
           x: tokenX,
           y: item.y,
           width: tokenW,
           height: item.height,
           fontSize: item.fontSize,
           fontName: item.fontName,
+          wordBreakBefore: w > 0 || Boolean(item.wordBreakBefore),
+          wordBreakAfter: w < tokens.length - 1 || Boolean(item.wordBreakAfter),
         });
 
-        runningCharIdx += wordToken.length;
+        runningCharIdx += token.length;
       }
     } else {
-      tokenizedSpans.push({
-        ...item,
-        str: item.str.trim(),
-      });
+      const cleanStr = rawStr.trim();
+      if (cleanStr.length > 0) {
+        tokenizedSpans.push({
+          ...item,
+          str: cleanStr,
+          wordBreakBefore: Boolean(item.wordBreakBefore) || /^\s/.test(rawStr),
+          wordBreakAfter: Boolean(item.wordBreakAfter) || /\s$/.test(rawStr),
+        });
+      }
     }
   }
 
@@ -475,7 +487,7 @@ export function clusterPageTextItems(
   const rawLines: RawLine[] = [];
 
   for (const span of sortedSpans) {
-    const yTolerance = Math.max(4, span.fontSize * 0.35);
+    const yTolerance = Math.max(3.5, span.fontSize * 0.32);
     let targetLine: RawLine | null = null;
 
     for (const line of rawLines) {
@@ -518,9 +530,19 @@ export function clusterPageTextItems(
 
       const prev = currentWord[currentWord.length - 1];
       const gap = span.x - (prev.x + prev.width);
-      const gapThreshold = Math.max(prev.fontSize * 0.28, 4);
 
-      if (gap < gapThreshold) {
+      // Explicit word breaks take absolute precedence
+      const hasExplicitBreak = Boolean(prev.wordBreakAfter || span.wordBreakBefore);
+
+      // In typography, a space character (' ') is ~0.22 - 0.35 * fontSize (typically 2.5px - 4.5px).
+      // Intra-word character/glyph spacing (kerning) is tight: <= 0.12 * fontSize or <= 1.5px.
+      // Devanagari matras / ligatures can have negative gaps (-4px to 0px).
+      const isSpaceGap = gap >= Math.max(prev.fontSize * 0.16, 1.8);
+      const isBackwardsOverlap = gap < -Math.max(prev.fontSize * 0.45, 6);
+
+      const isSameWord = !hasExplicitBreak && !isSpaceGap && !isBackwardsOverlap;
+
+      if (isSameWord) {
         currentWord.push(span);
       } else {
         wordsInLine.push(currentWord);
@@ -640,7 +662,12 @@ export async function getPageTextItemsWithCoords(
 
   for (let i = 0; i < textContent.items.length; i++) {
     const item = textContent.items[i] as any;
-    if (!item.str || !item.str.trim()) continue;
+    if (!item.str || !item.str.trim()) {
+      if (item.str && /\s/.test(item.str) && rawResults.length > 0) {
+        rawResults[rawResults.length - 1].wordBreakAfter = true;
+      }
+      continue;
+    }
 
     const tx = item.transform;
     const pdfX = tx[4];
@@ -653,6 +680,9 @@ export async function getPageTextItemsWithCoords(
     const itemWidth = Math.max(item.width, item.str.length * (fontSize * 0.5));
     const itemHeight = Math.max(item.height, fontSize * 1.15);
 
+    const hasLeadingSpace = /^\s/.test(item.str);
+    const hasTrailingSpace = /\s$/.test(item.str) || Boolean(item.hasEOL);
+
     rawResults.push({
       id: `text-${pageNumber}-${i}`,
       str: item.str,
@@ -662,6 +692,8 @@ export async function getPageTextItemsWithCoords(
       height: itemHeight,
       fontSize,
       fontName: item.fontName || 'Helvetica',
+      wordBreakBefore: hasLeadingSpace,
+      wordBreakAfter: hasTrailingSpace,
     });
   }
 

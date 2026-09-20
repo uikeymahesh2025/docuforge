@@ -60,6 +60,8 @@ export interface ExtractedTextItem {
   fontName: string;
   wordCluster?: TextClusterInfo;
   lineCluster?: TextClusterInfo;
+  wordBreakBefore?: boolean;
+  wordBreakAfter?: boolean;
 }
 
 export interface SearchMatch {
