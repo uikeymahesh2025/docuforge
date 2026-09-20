@@ -76,6 +76,7 @@ export const Footer: React.FC = () => {
         <div className="space-y-2">
           <p className="font-semibold text-zinc-200 text-xs uppercase tracking-wider">Convert</p>
           <ul className="space-y-1.5 text-zinc-400">
+            <li><Link to="/scan-to-pdf" className="hover:text-brand-gold transition">Camera Scanner</Link></li>
             <li><Link to="/pdf-to-images" className="hover:text-brand-gold transition">PDF to Images</Link></li>
             <li><Link to="/image-to-pdf" className="hover:text-brand-gold transition">Image to PDF</Link></li>
             <li><Link to="/pdf-to-word" className="hover:text-brand-gold transition">PDF to Word</Link></li>
