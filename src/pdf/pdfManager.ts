@@ -244,7 +244,7 @@ export function extractMatchesFromTextItems(
   pageNumber: number,
   startGlobalIndex = 0
 ): import('../types').SearchMatch[] {
-  const cleanQuery = query.trim().toLowerCase();
+  const cleanQuery = normalizeDevanagariText(query.trim()).toLowerCase();
   if (!cleanQuery) return [];
 
   const matches: import('../types').SearchMatch[] = [];
@@ -264,7 +264,7 @@ export function extractMatchesFromTextItems(
 
   for (let i = 0; i < textItems.length; i++) {
     const item = textItems[i];
-    const str = item.str || '';
+    const str = normalizeDevanagariText(item.str || '');
     const lower = str.toLowerCase();
     let searchIdx = 0;
 
@@ -345,6 +345,287 @@ export async function findPdfSearchMatches(
   return allMatches;
 }
 
+export function normalizeDevanagariText(raw: string): string {
+  if (!raw) return '';
+  let text = raw;
+
+  // 1. Swap visual chhoti 'i' matra (\u093F) that precedes consonant or conjunct cluster
+  // Devanagari consonants: \u0915-\u0939, \u0958-\u095F
+  // Halant: \u094D
+  // E.g.: \u093F\u0915 -> \u0915\u093F ("कि"), \u093F\u0938\u094D\u0925 -> \u0938\u094D\u0925\u093F ("स्थि")
+  text = text.replace(
+    /\u093F((?:[\u0915-\u0939\u0958-\u095F]\u094D)*[\u0915-\u0939\u0958-\u095F])/g,
+    '$1\u093F'
+  );
+
+  // 2. Anusvara/Chandrabindu placed before/after \u093F
+  text = text.replace(
+    /\u093F([\u0901\u0902])((?:[\u0915-\u0939\u0958-\u095F]\u094D)*[\u0915-\u0939\u0958-\u095F])/g,
+    '$2\u093F$1'
+  );
+
+  // 3. Unicode NFC normalization
+  try {
+    text = text.normalize('NFC');
+  } catch {
+    // fallback
+  }
+
+  return text;
+}
+
+export function clusterPageTextItems(
+  rawItems: import('../types').ExtractedTextItem[],
+  pageNumber: number
+): {
+  items: import('../types').ExtractedTextItem[];
+  wordClusters: import('../types').TextClusterInfo[];
+  lineClusters: import('../types').TextClusterInfo[];
+} {
+  if (!rawItems || rawItems.length === 0) {
+    return { items: [], wordClusters: [], lineClusters: [] };
+  }
+
+  // Step 1: Sub-tokenize spans that contain internal spaces so each word can be individually addressed
+  let measureCtx: CanvasRenderingContext2D | null = null;
+  if (typeof document !== 'undefined') {
+    try {
+      const canvas = document.createElement('canvas');
+      measureCtx = canvas.getContext('2d');
+    } catch {
+      measureCtx = null;
+    }
+  }
+
+  const tokenizedSpans: import('../types').ExtractedTextItem[] = [];
+
+  for (const item of rawItems) {
+    const rawStr = item.str || '';
+    if (rawStr.includes(' ') && rawStr.trim().includes(' ')) {
+      const words = rawStr.split(/(\s+)/);
+      let runningCharIdx = 0;
+      const fullTextLen = Math.max(rawStr.length, 1);
+
+      if (measureCtx) {
+        try {
+          measureCtx.font = `${item.fontSize}px ${item.fontName || 'Helvetica, Arial, sans-serif'}`;
+        } catch {
+          // ignore
+        }
+      }
+
+      const totalMeasuredW = measureCtx ? measureCtx.measureText(rawStr).width : item.width;
+      const ratio = totalMeasuredW > 0 ? item.width / totalMeasuredW : 1;
+
+      for (let w = 0; w < words.length; w++) {
+        const wordToken = words[w];
+        if (!wordToken) continue;
+
+        if (/^\s+$/.test(wordToken)) {
+          runningCharIdx += wordToken.length;
+          continue;
+        }
+
+        const preStr = rawStr.substring(0, runningCharIdx);
+        let tokenX: number;
+        let tokenW: number;
+
+        if (measureCtx) {
+          const preW = measureCtx.measureText(preStr).width * ratio;
+          const tokenMeasuredW = measureCtx.measureText(wordToken).width * ratio;
+          tokenX = Math.round(item.x + preW);
+          tokenW = Math.max(Math.round(tokenMeasuredW), 6);
+        } else {
+          tokenX = Math.round(item.x + (runningCharIdx / fullTextLen) * item.width);
+          tokenW = Math.max(Math.round((wordToken.length / fullTextLen) * item.width), 6);
+        }
+
+        tokenizedSpans.push({
+          id: `${item.id}-w${w}`,
+          str: wordToken,
+          x: tokenX,
+          y: item.y,
+          width: tokenW,
+          height: item.height,
+          fontSize: item.fontSize,
+          fontName: item.fontName,
+        });
+
+        runningCharIdx += wordToken.length;
+      }
+    } else {
+      tokenizedSpans.push({
+        ...item,
+        str: item.str.trim(),
+      });
+    }
+  }
+
+  const validSpans = tokenizedSpans.filter((s) => s.str.length > 0);
+
+  // Step 2: Group spans into Lines sharing approximately the same vertical baseline Y
+  const sortedSpans = [...validSpans].sort((a, b) => a.y - b.y || a.x - b.x);
+
+  interface RawLine {
+    baseY: number;
+    fontSize: number;
+    items: import('../types').ExtractedTextItem[];
+  }
+
+  const rawLines: RawLine[] = [];
+
+  for (const span of sortedSpans) {
+    const yTolerance = Math.max(4, span.fontSize * 0.35);
+    let targetLine: RawLine | null = null;
+
+    for (const line of rawLines) {
+      if (Math.abs(span.y - line.baseY) <= yTolerance) {
+        targetLine = line;
+        break;
+      }
+    }
+
+    if (targetLine) {
+      targetLine.items.push(span);
+      targetLine.baseY =
+        (targetLine.baseY * (targetLine.items.length - 1) + span.y) / targetLine.items.length;
+    } else {
+      rawLines.push({
+        baseY: span.y,
+        fontSize: span.fontSize,
+        items: [span],
+      });
+    }
+  }
+
+  // Step 3: Within each line, cluster adjacent spans into Words and create Line clusters
+  const finalItems: import('../types').ExtractedTextItem[] = [];
+  const wordClusters: import('../types').TextClusterInfo[] = [];
+  const lineClusters: import('../types').TextClusterInfo[] = [];
+
+  rawLines.forEach((line, lineIdx) => {
+    line.items.sort((a, b) => a.x - b.x);
+
+    const wordsInLine: import('../types').ExtractedTextItem[][] = [];
+    let currentWord: import('../types').ExtractedTextItem[] = [];
+
+    for (let i = 0; i < line.items.length; i++) {
+      const span = line.items[i];
+      if (currentWord.length === 0) {
+        currentWord.push(span);
+        continue;
+      }
+
+      const prev = currentWord[currentWord.length - 1];
+      const gap = span.x - (prev.x + prev.width);
+      const gapThreshold = Math.max(prev.fontSize * 0.28, 4);
+
+      if (gap < gapThreshold) {
+        currentWord.push(span);
+      } else {
+        wordsInLine.push(currentWord);
+        currentWord = [span];
+      }
+    }
+    if (currentWord.length > 0) {
+      wordsInLine.push(currentWord);
+    }
+
+    const lineMinX = Math.min(...line.items.map((i) => i.x));
+    const lineMinY = Math.min(...line.items.map((i) => i.y));
+    const lineMaxX = Math.max(...line.items.map((i) => i.x + i.width));
+    const lineMaxY = Math.max(...line.items.map((i) => i.y + i.height));
+    const lineMaxFontSize = Math.max(...line.items.map((i) => i.fontSize));
+    const lineFontName = line.items[0]?.fontName || 'Helvetica';
+
+    const wordsStrings = wordsInLine.map((wGroup) =>
+      normalizeDevanagariText(wGroup.map((s) => s.str).join(''))
+    );
+    const lineNormalizedStr = wordsStrings.join(' ');
+
+    const lineCluster: import('../types').TextClusterInfo = {
+      id: `line-${pageNumber}-${lineIdx}`,
+      str: lineNormalizedStr,
+      x: lineMinX,
+      y: lineMinY,
+      width: Math.max(lineMaxX - lineMinX, 10),
+      height: Math.max(lineMaxY - lineMinY, lineMaxFontSize * 1.15),
+      fontSize: lineMaxFontSize,
+      fontName: lineFontName,
+    };
+
+    lineClusters.push(lineCluster);
+
+    wordsInLine.forEach((wGroup, wordIdx) => {
+      const wordMinX = Math.min(...wGroup.map((i) => i.x));
+      const wordMinY = Math.min(...wGroup.map((i) => i.y));
+      const wordMaxX = Math.max(...wGroup.map((i) => i.x + i.width));
+      const wordMaxY = Math.max(...wGroup.map((i) => i.y + i.height));
+      const wordFontSize = Math.max(...wGroup.map((i) => i.fontSize));
+      const wordFontName = wGroup[0]?.fontName || lineFontName;
+
+      const combinedRaw = wGroup.map((i) => i.str).join('');
+      const normalizedWordStr = normalizeDevanagariText(combinedRaw);
+
+      const wordCluster: import('../types').TextClusterInfo = {
+        id: `word-${pageNumber}-${lineIdx}-${wordIdx}`,
+        str: normalizedWordStr,
+        x: wordMinX,
+        y: wordMinY,
+        width: Math.max(wordMaxX - wordMinX, 6),
+        height: Math.max(wordMaxY - wordMinY, wordFontSize * 1.15),
+        fontSize: wordFontSize,
+        fontName: wordFontName,
+        lineCluster,
+      };
+
+      wordClusters.push(wordCluster);
+
+      for (const span of wGroup) {
+        finalItems.push({
+          ...span,
+          wordCluster,
+          lineCluster,
+        });
+      }
+    });
+  });
+
+  return {
+    items: finalItems,
+    wordClusters,
+    lineClusters,
+  };
+}
+
+export function getWordClusters(
+  items: import('../types').ExtractedTextItem[]
+): import('../types').TextClusterInfo[] {
+  const seen = new Set<string>();
+  const list: import('../types').TextClusterInfo[] = [];
+  for (const item of items) {
+    if (item.wordCluster && !seen.has(item.wordCluster.id)) {
+      seen.add(item.wordCluster.id);
+      list.push(item.wordCluster);
+    }
+  }
+  return list;
+}
+
+export function getLineClusters(
+  items: import('../types').ExtractedTextItem[]
+): import('../types').TextClusterInfo[] {
+  const seen = new Set<string>();
+  const list: import('../types').TextClusterInfo[] = [];
+  for (const item of items) {
+    if (item.lineCluster && !seen.has(item.lineCluster.id)) {
+      seen.add(item.lineCluster.id);
+      list.push(item.lineCluster);
+    }
+  }
+  return list;
+}
+
 export async function getPageTextItemsWithCoords(
   pdfDoc: pdfjsLib.PDFDocumentProxy,
   pageNumber: number,
@@ -355,7 +636,7 @@ export async function getPageTextItemsWithCoords(
   const totalRotation = (page.rotate + rotation) % 360;
   const viewport = page.getViewport({ scale: 1.0, rotation: totalRotation });
   const textContent = await page.getTextContent();
-  const results: import('../types').ExtractedTextItem[] = [];
+  const rawResults: import('../types').ExtractedTextItem[] = [];
 
   for (let i = 0; i < textContent.items.length; i++) {
     const item = textContent.items[i] as any;
@@ -372,7 +653,7 @@ export async function getPageTextItemsWithCoords(
     const itemWidth = Math.max(item.width, item.str.length * (fontSize * 0.5));
     const itemHeight = Math.max(item.height, fontSize * 1.15);
 
-    results.push({
+    rawResults.push({
       id: `text-${pageNumber}-${i}`,
       str: item.str,
       x: screenX,
@@ -384,5 +665,6 @@ export async function getPageTextItemsWithCoords(
     });
   }
 
-  return results;
+  const clustered = clusterPageTextItems(rawResults, pageNumber);
+  return clustered.items;
 }

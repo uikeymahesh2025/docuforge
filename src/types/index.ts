@@ -36,6 +36,19 @@ export type EditorTool =
   | 'signature'
   | 'eraser';
 
+export interface TextClusterInfo {
+  id: string;
+  str: string;
+  x: number; // Viewport screen X
+  y: number; // Viewport screen Y
+  width: number;
+  height: number;
+  fontSize: number;
+  fontName: string;
+  wordCluster?: TextClusterInfo;
+  lineCluster?: TextClusterInfo;
+}
+
 export interface ExtractedTextItem {
   id: string;
   str: string;
@@ -45,6 +58,8 @@ export interface ExtractedTextItem {
   height: number;
   fontSize: number;
   fontName: string;
+  wordCluster?: TextClusterInfo;
+  lineCluster?: TextClusterInfo;
 }
 
 export interface SearchMatch {
@@ -73,6 +88,7 @@ export interface DirectTextEdit {
   fontFamily: string;
   color: string;
   backgroundColor: string;
+  scope?: 'word' | 'line';
 }
 
 export interface ImageReplacement {

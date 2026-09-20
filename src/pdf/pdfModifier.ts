@@ -954,6 +954,63 @@ export async function pdfToImagesZip(
   };
 }
 
+function isWinAnsiSafe(text: string): boolean {
+  for (let i = 0; i < text.length; i++) {
+    const code = text.charCodeAt(i);
+    if (code > 255) return false;
+  }
+  return true;
+}
+
+async function renderUnicodeTextToPdfImage(
+  doc: PDFDocument,
+  page: any,
+  edit: DirectTextEdit,
+  pageH: number
+): Promise<void> {
+  if (typeof document === 'undefined') return;
+
+  const text = edit.newText;
+  const fontSize = edit.fontSize || 12;
+  const color = edit.color || '#000000';
+  const fontFamily =
+    edit.fontFamily || "'Noto Sans Devanagari', 'Mangal', 'Nirmala UI', sans-serif";
+
+  // 4x scale for crisp 300+ DPI print-quality text
+  const scaleFactor = 4;
+  const canvas = document.createElement('canvas');
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return;
+
+  ctx.font = `${fontSize * scaleFactor}px ${fontFamily}`;
+  const metrics = ctx.measureText(text);
+
+  const textWidth = Math.max(metrics.width / scaleFactor, edit.width || 20);
+  const textHeight = Math.max(fontSize * 1.35, edit.height || fontSize);
+
+  canvas.width = Math.ceil(textWidth * scaleFactor) + 16 * scaleFactor;
+  canvas.height = Math.ceil(textHeight * scaleFactor) + 8 * scaleFactor;
+
+  ctx.font = `${fontSize * scaleFactor}px ${fontFamily}`;
+  ctx.fillStyle = color;
+  ctx.textBaseline = 'top';
+  ctx.fillText(text, 0, 0);
+
+  const pngDataUrl = canvas.toDataURL('image/png');
+  const pngImage = await doc.embedPng(pngDataUrl);
+
+  const pdfImgWidth = canvas.width / scaleFactor;
+  const pdfImgHeight = canvas.height / scaleFactor;
+  const imgY = pageH - edit.y - pdfImgHeight;
+
+  page.drawImage(pngImage, {
+    x: edit.x,
+    y: imgY,
+    width: pdfImgWidth,
+    height: pdfImgHeight,
+  });
+}
+
 // 14. BAKE EDITOR ANNOTATIONS ONTO PDF (Including Direct Text Edits & Image Replacements)
 export async function bakeAnnotationsOnPdf(
   sourceBytes: Uint8Array,
@@ -1039,13 +1096,32 @@ export async function bakeAnnotationsOnPdf(
       if (edit.newText && edit.newText.trim()) {
         const textRgb = hexToRgb(edit.color || '#000000');
         const textY = pageH - edit.y - (edit.fontSize || 12) * 0.95;
-        page.drawText(edit.newText, {
-          x: edit.x,
-          y: textY,
-          size: edit.fontSize || 12,
-          font: helveticaFont,
-          color: rgb(textRgb.r, textRgb.g, textRgb.b),
-        });
+
+        if (!isWinAnsiSafe(edit.newText)) {
+          // Devanagari / Unicode characters require HTML5 canvas rasterization fallback
+          try {
+            await renderUnicodeTextToPdfImage(doc, page, edit, pageH);
+          } catch (rErr) {
+            console.warn('Failed rendering Unicode text via canvas fallback:', rErr);
+          }
+        } else {
+          try {
+            page.drawText(edit.newText, {
+              x: edit.x,
+              y: textY,
+              size: edit.fontSize || 12,
+              font: helveticaFont,
+              color: rgb(textRgb.r, textRgb.g, textRgb.b),
+            });
+          } catch (tErr) {
+            // Fallback if font encoding throws unexpected error
+            try {
+              await renderUnicodeTextToPdfImage(doc, page, edit, pageH);
+            } catch (rErr) {
+              console.warn('Failed rendering Unicode text fallback after drawText error:', rErr);
+            }
+          }
+        }
       }
     }
   }

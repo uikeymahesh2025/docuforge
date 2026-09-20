@@ -7,6 +7,7 @@ import {
   ImagePlus,
   FileEdit,
   Sparkles,
+  Type,
 } from 'lucide-react';
 import { useEditorStore } from '../../stores/useEditorStore';
 import {
@@ -14,6 +15,8 @@ import {
   renderPageToCanvas,
   getPageTextItemsWithCoords,
   extractMatchesFromTextItems,
+  getWordClusters,
+  getLineClusters,
 } from '../../pdf/pdfManager';
 import {
   AnyAnnotation,
@@ -24,6 +27,7 @@ import {
   ExtractedTextItem,
   DirectTextEdit,
   ImageReplacement,
+  TextClusterInfo,
 } from '../../types';
 
 interface PdfCanvasViewerProps {
@@ -96,6 +100,7 @@ export const PdfCanvasViewer: React.FC<PdfCanvasViewerProps> = ({ onSelectAnnota
   const [hoveredAnnId, setHoveredAnnId] = useState<string | null>(null);
 
   // Direct Text Edit State
+  const [directTextScope, setDirectTextScope] = useState<'word' | 'line'>('word');
   const [editingModal, setEditingModal] = useState<{
     id: string;
     originalText: string;
@@ -108,6 +113,9 @@ export const PdfCanvasViewer: React.FC<PdfCanvasViewerProps> = ({ onSelectAnnota
     width: number;
     height: number;
     isExistingEdit: boolean;
+    scope: 'word' | 'line';
+    wordCluster?: TextClusterInfo;
+    lineCluster?: TextClusterInfo;
   } | null>(null);
 
   // Image Replacement State
@@ -136,6 +144,14 @@ export const PdfCanvasViewer: React.FC<PdfCanvasViewerProps> = ({ onSelectAnnota
 
     return [];
   }, [searchQuery, searchMatches, currentPage, extractedPageTextItems]);
+
+  // Compute clustered items for direct text editing based on selected scope (Word vs Line)
+  const displayedClusters = React.useMemo(() => {
+    if (directTextScope === 'line') {
+      return getLineClusters(extractedPageTextItems);
+    }
+    return getWordClusters(extractedPageTextItems);
+  }, [extractedPageTextItems, directTextScope]);
 
   // Smoothly scroll active search match into view
   useEffect(() => {
@@ -835,6 +851,46 @@ export const PdfCanvasViewer: React.FC<PdfCanvasViewerProps> = ({ onSelectAnnota
         className="hidden"
       />
 
+      {/* Floating Direct Text Edit Tool Scope Selector */}
+      {activeTool === 'direct-text' && (
+        <div className="sticky top-4 left-0 right-0 z-30 flex justify-center pointer-events-none mb-[-42px]">
+          <div className="pointer-events-auto bg-[#121218]/95 backdrop-blur-md border border-brand-gold/40 rounded-full px-4 py-1.5 shadow-2xl flex items-center gap-3 animate-fadeIn">
+            <div className="flex items-center gap-1.5 text-xs text-brand-gold font-bold">
+              <Type className="w-3.5 h-3.5" />
+              <span>Direct Text Edit</span>
+            </div>
+            <div className="h-3 w-[1px] bg-white/20" />
+            <div className="flex items-center bg-black/50 p-0.5 rounded-full border border-white/10 text-[11px]">
+              <button
+                type="button"
+                onClick={() => setDirectTextScope('word')}
+                className={`px-3 py-0.5 rounded-full transition font-semibold ${
+                  directTextScope === 'word'
+                    ? 'bg-brand-gold text-black shadow-xs'
+                    : 'text-zinc-400 hover:text-white'
+                }`}
+              >
+                Word Mode
+              </button>
+              <button
+                type="button"
+                onClick={() => setDirectTextScope('line')}
+                className={`px-3 py-0.5 rounded-full transition font-semibold ${
+                  directTextScope === 'line'
+                    ? 'bg-brand-gold text-black shadow-xs'
+                    : 'text-zinc-400 hover:text-white'
+                }`}
+              >
+                Line Mode
+              </button>
+            </div>
+            <span className="text-[10px] text-zinc-400 hidden sm:inline">
+              {directTextScope === 'word' ? 'Click any word to edit' : 'Click any full line to edit'}
+            </span>
+          </div>
+        </div>
+      )}
+
       {/* Centering & Scroll Area:
           min-w-full and min-h-full ensure it takes at least 100% of viewport.
           w-fit and h-fit ensure it expands when canvas is larger (zoomed in),
@@ -893,6 +949,7 @@ export const PdfCanvasViewer: React.FC<PdfCanvasViewerProps> = ({ onSelectAnnota
                         width: edit.width,
                         height: edit.height,
                         isExistingEdit: true,
+                        scope: edit.scope || 'word',
                       });
                     }
                   }}
@@ -902,7 +959,7 @@ export const PdfCanvasViewer: React.FC<PdfCanvasViewerProps> = ({ onSelectAnnota
                     top: `${edit.y * scale}px`,
                     fontSize: `${edit.fontSize * scale}px`,
                     color: edit.color,
-                    fontFamily: edit.fontFamily || 'Helvetica, Arial, sans-serif',
+                    fontFamily: edit.fontFamily || "'Noto Sans Devanagari', 'Mangal', 'Nirmala UI', Helvetica, Arial, sans-serif",
                     zIndex: 16,
                     lineHeight: 1.15,
                     whiteSpace: 'pre',
@@ -920,39 +977,42 @@ export const PdfCanvasViewer: React.FC<PdfCanvasViewerProps> = ({ onSelectAnnota
             );
           })}
 
-        {/* When activeTool === 'direct-text', show interactive highlight boxes over all unedited text items */}
+        {/* When activeTool === 'direct-text', show interactive highlight boxes over all unedited text clusters */}
         {activeTool === 'direct-text' &&
-          extractedPageTextItems
-            .filter((item) => !directTextEdits.some((e) => e.pageNumber === currentPage && e.id === item.id))
-            .map((item) => (
+          displayedClusters
+            .filter((cluster) => !directTextEdits.some((e) => e.pageNumber === currentPage && e.id === cluster.id))
+            .map((cluster) => (
               <div
-                key={item.id}
+                key={cluster.id}
                 onClick={(e) => {
                   e.stopPropagation();
                   setEditingModal({
-                    id: item.id,
-                    originalText: item.str,
-                    newText: item.str,
-                    fontSize: item.fontSize,
+                    id: cluster.id,
+                    originalText: cluster.str,
+                    newText: cluster.str,
+                    fontSize: cluster.fontSize,
                     color: '#000000',
                     backgroundColor: '#ffffff',
-                    x: item.x,
-                    y: item.y,
-                    width: item.width,
-                    height: item.height,
+                    x: cluster.x,
+                    y: cluster.y,
+                    width: cluster.width,
+                    height: cluster.height,
                     isExistingEdit: false,
+                    scope: directTextScope,
+                    wordCluster: cluster.wordCluster || (directTextScope === 'word' ? cluster : undefined),
+                    lineCluster: cluster.lineCluster || (directTextScope === 'line' ? cluster : undefined),
                   });
                 }}
                 style={{
                   position: 'absolute',
-                  left: `${item.x * scale}px`,
-                  top: `${item.y * scale}px`,
-                  width: `${item.width * scale}px`,
-                  height: `${item.height * scale}px`,
+                  left: `${cluster.x * scale}px`,
+                  top: `${cluster.y * scale}px`,
+                  width: `${cluster.width * scale}px`,
+                  height: `${cluster.height * scale}px`,
                   zIndex: 20,
                 }}
-                className="cursor-text border border-transparent hover:border-amber-400/80 hover:bg-amber-400/20 rounded-xs transition-colors"
-                title={`Click to edit: "${item.str}"`}
+                className="cursor-text border border-amber-400/30 bg-amber-400/5 hover:border-amber-400 hover:bg-amber-400/25 rounded-xs transition-colors"
+                title={`Click to edit ${directTextScope}: "${cluster.str}"`}
               />
             ))}
 
@@ -1269,10 +1329,78 @@ export const PdfCanvasViewer: React.FC<PdfCanvasViewerProps> = ({ onSelectAnnota
               </button>
             </div>
 
+            {/* Scope Selection: Word vs Entire Line */}
+            <div className="flex items-center justify-between pb-1">
+              <label className="text-[11px] font-medium text-zinc-400">Selection Scope:</label>
+              <div className="flex items-center bg-black/40 p-0.5 rounded-lg border border-white/10 text-[11px]">
+                <button
+                  type="button"
+                  disabled={!editingModal.wordCluster}
+                  onClick={() => {
+                    if (editingModal.wordCluster && editingModal.scope !== 'word') {
+                      setEditingModal({
+                        ...editingModal,
+                        scope: 'word',
+                        originalText: editingModal.wordCluster.str,
+                        newText:
+                          editingModal.newText === editingModal.originalText
+                            ? editingModal.wordCluster.str
+                            : editingModal.newText,
+                        x: editingModal.wordCluster.x,
+                        y: editingModal.wordCluster.y,
+                        width: editingModal.wordCluster.width,
+                        height: editingModal.wordCluster.height,
+                        fontSize: editingModal.wordCluster.fontSize,
+                      });
+                    }
+                  }}
+                  className={`px-3 py-1 rounded-md transition font-medium ${
+                    editingModal.scope === 'word'
+                      ? 'bg-brand-gold text-black font-bold shadow-xs'
+                      : 'text-zinc-400 hover:text-white disabled:opacity-30'
+                  }`}
+                >
+                  Word
+                </button>
+                <button
+                  type="button"
+                  disabled={!editingModal.lineCluster}
+                  onClick={() => {
+                    if (editingModal.lineCluster && editingModal.scope !== 'line') {
+                      setEditingModal({
+                        ...editingModal,
+                        scope: 'line',
+                        originalText: editingModal.lineCluster.str,
+                        newText:
+                          editingModal.newText === editingModal.originalText
+                            ? editingModal.lineCluster.str
+                            : editingModal.newText,
+                        x: editingModal.lineCluster.x,
+                        y: editingModal.lineCluster.y,
+                        width: editingModal.lineCluster.width,
+                        height: editingModal.lineCluster.height,
+                        fontSize: editingModal.lineCluster.fontSize,
+                      });
+                    }
+                  }}
+                  className={`px-3 py-1 rounded-md transition font-medium ${
+                    editingModal.scope === 'line'
+                      ? 'bg-brand-gold text-black font-bold shadow-xs'
+                      : 'text-zinc-400 hover:text-white disabled:opacity-30'
+                  }`}
+                >
+                  Entire Line
+                </button>
+              </div>
+            </div>
+
             {/* Original Text Quote */}
             <div>
               <label className="text-[11px] font-medium text-zinc-400 mb-1 block">Original PDF Text:</label>
-              <div className="text-xs text-zinc-300 bg-black/40 px-3 py-2 rounded-xl border border-white/5 font-mono break-words select-all">
+              <div
+                style={{ fontFamily: "'Noto Sans Devanagari', 'Mangal', 'Nirmala UI', sans-serif" }}
+                className="text-xs text-zinc-200 bg-black/40 px-3 py-2 rounded-xl border border-white/5 font-medium break-words select-all"
+              >
                 "{editingModal.originalText}"
               </div>
             </div>
@@ -1284,6 +1412,7 @@ export const PdfCanvasViewer: React.FC<PdfCanvasViewerProps> = ({ onSelectAnnota
                 rows={3}
                 value={editingModal.newText}
                 onChange={(e) => setEditingModal({ ...editingModal, newText: e.target.value })}
+                style={{ fontFamily: "'Noto Sans Devanagari', 'Mangal', 'Nirmala UI', sans-serif" }}
                 className="w-full px-3 py-2 rounded-xl bg-zinc-900 border border-white/10 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-brand-gold resize-none"
                 placeholder="Type replacement text..."
                 autoFocus
@@ -1400,9 +1529,10 @@ export const PdfCanvasViewer: React.FC<PdfCanvasViewerProps> = ({ onSelectAnnota
                       width: editingModal.width,
                       height: editingModal.height,
                       fontSize: editingModal.fontSize,
-                      fontFamily: 'Helvetica, Arial, sans-serif',
+                      fontFamily: "'Noto Sans Devanagari', 'Mangal', 'Nirmala UI', Helvetica, Arial, sans-serif",
                       color: editingModal.color,
                       backgroundColor: editingModal.backgroundColor,
+                      scope: editingModal.scope,
                     });
                     setEditingModal(null);
                   }}
