@@ -41,6 +41,7 @@ import {
   Table,
   ScanText,
   Camera,
+  Star,
 } from 'lucide-react';
 import { ToolItem, ToolCategory } from '../../types';
 import { TOOLS, CATEGORY_LABELS } from '../../utils/toolsCatalog';
@@ -85,6 +86,7 @@ export const ICON_MAP: Record<string, React.ElementType> = {
   Table,
   ScanText,
   Camera,
+  Star,
 };
 
 interface MegaMenuProps {

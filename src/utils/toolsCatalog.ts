@@ -3,6 +3,15 @@ import { ToolItem } from '../types';
 export const TOOLS: ToolItem[] = [
   // Organize
   {
+    id: 'photo-proofing',
+    name: 'Photo Proofing & Selection',
+    description: 'Interactive client photo selection for wedding & event albums with 5-star ratings, quick rejects & lossless sorted PDF export.',
+    category: 'organize',
+    path: '/photo-proofing',
+    icon: 'Star',
+    badge: 'Wedding & Event Pro',
+  },
+  {
     id: 'merge-pdf',
     name: 'Merge PDF',
     description: 'Combine multiple PDF files into one unified document in your preferred order.',

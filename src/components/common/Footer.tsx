@@ -65,6 +65,7 @@ export const Footer: React.FC = () => {
           <p className="font-semibold text-zinc-200 text-xs uppercase tracking-wider">Top Tools</p>
           <ul className="space-y-1.5 text-zinc-400">
             <li><Link to="/pdf-editor" className="hover:text-brand-gold transition">PDF Editor</Link></li>
+            <li><Link to="/photo-proofing" className="hover:text-brand-gold transition">Photo Proofing</Link></li>
             <li><Link to="/merge-pdf" className="hover:text-brand-gold transition">Merge PDF</Link></li>
             <li><Link to="/split-pdf" className="hover:text-brand-gold transition">Split PDF</Link></li>
             <li><Link to="/compress-pdf" className="hover:text-brand-gold transition">Compress PDF</Link></li>

@@ -23,6 +23,7 @@ import { ResizePage } from './pages/ResizePage';
 import { PdfToImagesPage } from './pages/PdfToImagesPage';
 import { ImageToPdfPage } from './pages/ImageToPdfPage';
 import { ScanToPdfPage } from './pages/ScanToPdfPage';
+import { PhotoProofingPage } from './pages/PhotoProofingPage';
 import { ExcelToPdfPage } from './pages/ExcelToPdfPage';
 import { PdfToExcelPage } from './pages/PdfToExcelPage';
 import { OcrPage } from './pages/OcrPage';
@@ -92,6 +93,7 @@ export const App: React.FC = () => {
             <Route path="/pdf-to-images" element={<PdfToImagesPage />} />
             <Route path="/image-to-pdf" element={<ImageToPdfPage />} />
             <Route path="/scan-to-pdf" element={<ScanToPdfPage />} />
+            <Route path="/photo-proofing" element={<PhotoProofingPage />} />
             <Route path="/excel-to-pdf" element={<ExcelToPdfPage />} />
             <Route path="/pdf-to-excel" element={<PdfToExcelPage />} />
             <Route path="/ocr-pdf" element={<OcrPage />} />
