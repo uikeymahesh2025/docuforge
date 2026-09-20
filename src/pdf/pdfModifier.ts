@@ -982,11 +982,18 @@ async function renderUnicodeTextToPdfImage(
   const ctx = canvas.getContext('2d');
   if (!ctx) return;
 
-  ctx.font = `${fontSize * scaleFactor}px ${fontFamily}`;
-  const metrics = ctx.measureText(text);
+  const lines = text.split('\n');
+  const lineHeight = fontSize * 1.25;
 
-  const textWidth = Math.max(metrics.width / scaleFactor, edit.width || 20);
-  const textHeight = Math.max(fontSize * 1.35, edit.height || fontSize);
+  ctx.font = `${fontSize * scaleFactor}px ${fontFamily}`;
+  let maxLineWidth = 0;
+  for (const line of lines) {
+    const w = ctx.measureText(line).width;
+    if (w > maxLineWidth) maxLineWidth = w;
+  }
+
+  const textWidth = Math.max(maxLineWidth / scaleFactor, edit.width || 20);
+  const textHeight = Math.max(lines.length * lineHeight, edit.height || fontSize);
 
   canvas.width = Math.ceil(textWidth * scaleFactor) + 16 * scaleFactor;
   canvas.height = Math.ceil(textHeight * scaleFactor) + 8 * scaleFactor;
@@ -994,7 +1001,10 @@ async function renderUnicodeTextToPdfImage(
   ctx.font = `${fontSize * scaleFactor}px ${fontFamily}`;
   ctx.fillStyle = color;
   ctx.textBaseline = 'top';
-  ctx.fillText(text, 0, 0);
+
+  for (let i = 0; i < lines.length; i++) {
+    ctx.fillText(lines[i], 0, i * lineHeight * scaleFactor);
+  }
 
   const pngDataUrl = canvas.toDataURL('image/png');
   const pngImage = await doc.embedPng(pngDataUrl);
@@ -1106,13 +1116,17 @@ export async function bakeAnnotationsOnPdf(
           }
         } else {
           try {
-            page.drawText(edit.newText, {
-              x: edit.x,
-              y: textY,
-              size: edit.fontSize || 12,
-              font: helveticaFont,
-              color: rgb(textRgb.r, textRgb.g, textRgb.b),
-            });
+            const lines = edit.newText.split('\n');
+            const lineHeight = (edit.fontSize || 12) * 1.25;
+            for (let i = 0; i < lines.length; i++) {
+              page.drawText(lines[i], {
+                x: edit.x,
+                y: textY - i * lineHeight,
+                size: edit.fontSize || 12,
+                font: helveticaFont,
+                color: rgb(textRgb.r, textRgb.g, textRgb.b),
+              });
+            }
           } catch (tErr) {
             // Fallback if font encoding throws unexpected error
             try {

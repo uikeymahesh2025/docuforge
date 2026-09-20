@@ -47,6 +47,7 @@ export interface TextClusterInfo {
   fontName: string;
   wordCluster?: TextClusterInfo;
   lineCluster?: TextClusterInfo;
+  paragraphCluster?: TextClusterInfo;
 }
 
 export interface ExtractedTextItem {
@@ -60,6 +61,7 @@ export interface ExtractedTextItem {
   fontName: string;
   wordCluster?: TextClusterInfo;
   lineCluster?: TextClusterInfo;
+  paragraphCluster?: TextClusterInfo;
   wordBreakBefore?: boolean;
   wordBreakAfter?: boolean;
 }
@@ -90,7 +92,7 @@ export interface DirectTextEdit {
   fontFamily: string;
   color: string;
   backgroundColor: string;
-  scope?: 'word' | 'line';
+  scope?: 'word' | 'line' | 'paragraph';
 }
 
 export interface ImageReplacement {

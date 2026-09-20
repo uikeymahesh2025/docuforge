@@ -383,9 +383,10 @@ export function clusterPageTextItems(
   items: import('../types').ExtractedTextItem[];
   wordClusters: import('../types').TextClusterInfo[];
   lineClusters: import('../types').TextClusterInfo[];
+  paragraphClusters: import('../types').TextClusterInfo[];
 } {
   if (!rawItems || rawItems.length === 0) {
-    return { items: [], wordClusters: [], lineClusters: [] };
+    return { items: [], wordClusters: [], lineClusters: [], paragraphClusters: [] };
   }
 
   // Step 1: Sub-tokenize spans that contain internal spaces so each word can be individually addressed
@@ -510,10 +511,14 @@ export function clusterPageTextItems(
     }
   }
 
-  // Step 3: Within each line, cluster adjacent spans into Words and create Line clusters
-  const finalItems: import('../types').ExtractedTextItem[] = [];
-  const wordClusters: import('../types').TextClusterInfo[] = [];
-  const lineClusters: import('../types').TextClusterInfo[] = [];
+  // Step 3: Within each line, cluster adjacent spans into Words and build line data
+  interface LineData {
+    lineCluster: import('../types').TextClusterInfo;
+    words: import('../types').TextClusterInfo[];
+    spans: { span: import('../types').ExtractedTextItem; wordCluster: import('../types').TextClusterInfo }[];
+  }
+
+  const linesData: LineData[] = [];
 
   rawLines.forEach((line, lineIdx) => {
     line.items.sort((a, b) => a.x - b.x);
@@ -576,7 +581,8 @@ export function clusterPageTextItems(
       fontName: lineFontName,
     };
 
-    lineClusters.push(lineCluster);
+    const words: import('../types').TextClusterInfo[] = [];
+    const spans: { span: import('../types').ExtractedTextItem; wordCluster: import('../types').TextClusterInfo }[] = [];
 
     wordsInLine.forEach((wGroup, wordIdx) => {
       const wordMinX = Math.min(...wGroup.map((i) => i.x));
@@ -601,22 +607,123 @@ export function clusterPageTextItems(
         lineCluster,
       };
 
-      wordClusters.push(wordCluster);
+      words.push(wordCluster);
 
       for (const span of wGroup) {
-        finalItems.push({
-          ...span,
+        spans.push({
+          span,
           wordCluster,
-          lineCluster,
         });
       }
     });
+
+    linesData.push({
+      lineCluster,
+      words,
+      spans,
+    });
+  });
+
+  // Step 4: Cluster consecutive lines into Paragraphs based on vertical proximity and alignment
+  linesData.sort((a, b) => a.lineCluster.y - b.lineCluster.y || a.lineCluster.x - b.lineCluster.x);
+
+  const rawParagraphs: LineData[][] = [];
+  let currentPara: LineData[] = [];
+
+  for (const lineData of linesData) {
+    if (currentPara.length === 0) {
+      currentPara.push(lineData);
+      continue;
+    }
+
+    const prevLineData = currentPara[currentPara.length - 1];
+    const prevLine = prevLineData.lineCluster;
+    const currLine = lineData.lineCluster;
+
+    const gapY = currLine.y - (prevLine.y + prevLine.height);
+    const avgFontSize = (prevLine.fontSize + currLine.fontSize) / 2;
+
+    const xOverlap =
+      Math.min(prevLine.x + prevLine.width, currLine.x + currLine.width) -
+      Math.max(prevLine.x, currLine.x);
+    const isHorizontalContinuity =
+      xOverlap > 0 || Math.abs(currLine.x - prevLine.x) <= Math.max(avgFontSize * 4, 50);
+
+    const isFontScaleSimilar =
+      Math.abs(currLine.fontSize - prevLine.fontSize) <= Math.max(prevLine.fontSize * 0.45, 3.5);
+
+    const isSameParagraph =
+      gapY >= -prevLine.height * 0.4 &&
+      gapY <= Math.max(avgFontSize * 0.95, 14) &&
+      isHorizontalContinuity &&
+      isFontScaleSimilar;
+
+    if (isSameParagraph) {
+      currentPara.push(lineData);
+    } else {
+      rawParagraphs.push(currentPara);
+      currentPara = [lineData];
+    }
+  }
+
+  if (currentPara.length > 0) {
+    rawParagraphs.push(currentPara);
+  }
+
+  // Step 5: Finalize paragraph clusters and bind relations
+  const finalItems: import('../types').ExtractedTextItem[] = [];
+  const wordClusters: import('../types').TextClusterInfo[] = [];
+  const lineClusters: import('../types').TextClusterInfo[] = [];
+  const paragraphClusters: import('../types').TextClusterInfo[] = [];
+
+  rawParagraphs.forEach((paraLines, paraIdx) => {
+    const paraMinX = Math.min(...paraLines.map((l) => l.lineCluster.x));
+    const paraMinY = Math.min(...paraLines.map((l) => l.lineCluster.y));
+    const paraMaxX = Math.max(...paraLines.map((l) => l.lineCluster.x + l.lineCluster.width));
+    const paraMaxY = Math.max(...paraLines.map((l) => l.lineCluster.y + l.lineCluster.height));
+    const paraMaxFontSize = Math.max(...paraLines.map((l) => l.lineCluster.fontSize));
+    const paraFontName = paraLines[0]?.lineCluster.fontName || 'Helvetica';
+
+    const paraNormalizedStr = paraLines.map((l) => l.lineCluster.str).join('\n');
+
+    const paragraphCluster: import('../types').TextClusterInfo = {
+      id: `para-${pageNumber}-${paraIdx}`,
+      str: paraNormalizedStr,
+      x: paraMinX,
+      y: paraMinY,
+      width: Math.max(paraMaxX - paraMinX, 10),
+      height: Math.max(paraMaxY - paraMinY, paraMaxFontSize * 1.2),
+      fontSize: paraMaxFontSize,
+      fontName: paraFontName,
+    };
+
+    paragraphClusters.push(paragraphCluster);
+
+    for (const lData of paraLines) {
+      lData.lineCluster.paragraphCluster = paragraphCluster;
+      lineClusters.push(lData.lineCluster);
+
+      for (const w of lData.words) {
+        w.paragraphCluster = paragraphCluster;
+        wordClusters.push(w);
+      }
+
+      for (const s of lData.spans) {
+        finalItems.push({
+          ...s.span,
+          wordCluster: s.wordCluster,
+          lineCluster: lData.lineCluster,
+          paragraphCluster,
+        });
+      }
+    }
   });
 
   return {
     items: finalItems,
     wordClusters,
     lineClusters,
+    paragraphClusters,
   };
 }
 
@@ -643,6 +750,20 @@ export function getLineClusters(
     if (item.lineCluster && !seen.has(item.lineCluster.id)) {
       seen.add(item.lineCluster.id);
       list.push(item.lineCluster);
+    }
+  }
+  return list;
+}
+
+export function getParagraphClusters(
+  items: import('../types').ExtractedTextItem[]
+): import('../types').TextClusterInfo[] {
+  const seen = new Set<string>();
+  const list: import('../types').TextClusterInfo[] = [];
+  for (const item of items) {
+    if (item.paragraphCluster && !seen.has(item.paragraphCluster.id)) {
+      seen.add(item.paragraphCluster.id);
+      list.push(item.paragraphCluster);
     }
   }
   return list;
