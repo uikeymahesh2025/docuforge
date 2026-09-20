@@ -40,6 +40,7 @@ import {
   FileSpreadsheet,
   Table,
   ScanText,
+  Camera,
 } from 'lucide-react';
 import { ToolItem, ToolCategory } from '../../types';
 import { TOOLS, CATEGORY_LABELS } from '../../utils/toolsCatalog';
@@ -83,6 +84,7 @@ export const ICON_MAP: Record<string, React.ElementType> = {
   FileSpreadsheet,
   Table,
   ScanText,
+  Camera,
 };
 
 interface MegaMenuProps {
