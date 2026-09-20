@@ -11,11 +11,13 @@ import {
   Crop as CropIcon,
   Sparkles,
   RefreshCw,
+  Camera,
 } from 'lucide-react';
 import { FileUploader } from '../components/tools/FileUploader';
 import { ProcessingModal } from '../components/tools/ProcessingModal';
 import { ResultModal } from '../components/tools/ResultModal';
 import { ImageEditModal } from '../components/tools/ImageEditModal';
+import { CameraScannerModal } from '../components/tools/CameraScannerModal';
 import { imagesToPdf } from '../pdf/pdfModifier';
 import { useToastStore } from '../stores/useToastStore';
 import {
@@ -41,8 +43,20 @@ export const ImageToPdfPage: React.FC = () => {
   const [processingStatus, setProcessingStatus] = useState('Building PDF from images...');
   const [resultBytes, setResultBytes] = useState<Uint8Array | null>(null);
   const [editingImage, setEditingImage] = useState<ImageItem | null>(null);
+  const [isCameraOpen, setIsCameraOpen] = useState(false);
 
   const addToast = useToastStore((state) => state.addToast);
+
+  const handleCameraPagesScanned = (
+    scannedPages: { id: string; name: string; dataUrl: string; width: number; height: number }[]
+  ) => {
+    setImages((prev) => [...prev, ...scannedPages]);
+    addToast({
+      type: 'success',
+      title: 'Scanned Pages Added',
+      message: `${scannedPages.length} camera page(s) compiled. You can reorder, crop, or generate your PDF.`,
+    });
+  };
 
   const handleFilesSelected = async (files: File[]) => {
     const newItems: ImageItem[] = [];
@@ -230,14 +244,52 @@ export const ImageToPdfPage: React.FC = () => {
       </div>
 
       {images.length === 0 ? (
-        <FileUploader
-          fileType="image"
-          accept="image/jpeg,image/png,image/webp"
-          multiple={true}
-          title="Drop image files here"
-          subtitle="Supports JPG, PNG, and WEBP formats"
-          onFilesSelected={handleFilesSelected}
-        />
+        <div className="space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-stretch">
+            {/* Direct Camera Scanner CTA Card */}
+            <div
+              onClick={() => setIsCameraOpen(true)}
+              className="relative cursor-pointer border-2 border-dashed border-brand-gold/40 hover:border-brand-gold bg-amber-500/5 hover:bg-amber-500/10 rounded-3xl p-8 sm:p-10 text-center transition-all duration-200 group flex flex-col items-center justify-between shadow-xl"
+            >
+              <div className="w-16 h-16 sm:w-20 sm:h-20 mx-auto mb-4 rounded-2xl bg-amber-500/15 border border-brand-gold/40 flex items-center justify-center text-brand-gold group-hover:scale-105 group-hover:shadow-gold-glow transition duration-200 shadow-md">
+                <Camera className="w-8 h-8 sm:w-10 sm:h-10" />
+              </div>
+
+              <div>
+                <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-brand-gold/20 text-brand-gold border border-brand-gold/30 text-[11px] font-bold mb-3 uppercase tracking-wider">
+                  <Sparkles className="w-3 h-3" />
+                  <span>Camera Scanner</span>
+                </div>
+                <h3 className="text-xl font-bold text-white mb-2 group-hover:text-brand-gold transition">
+                  Scan Document
+                </h3>
+                <p className="text-xs sm:text-sm text-zinc-400 max-w-sm mx-auto leading-relaxed">
+                  Batch multi-page scanning with rear camera, auto-perspective document detection, and interactive corner pins.
+                </p>
+              </div>
+
+              <button
+                type="button"
+                className="mt-6 inline-flex items-center gap-2 px-6 py-3 rounded-xl bg-brand-gold text-black font-bold text-xs sm:text-sm hover:brightness-110 shadow-gold-glow transition active:scale-95"
+              >
+                <Camera className="w-4 h-4" />
+                <span>Open Camera Scanner</span>
+              </button>
+            </div>
+
+            {/* Standard File Upload */}
+            <div className="flex flex-col justify-center">
+              <FileUploader
+                fileType="image"
+                accept="image/jpeg,image/png,image/webp"
+                multiple={true}
+                title="Drop image files here"
+                subtitle="Upload existing JPG, PNG, or WEBP photos"
+                onFilesSelected={handleFilesSelected}
+              />
+            </div>
+          </div>
+        </div>
       ) : (
         <div className="space-y-6">
           <div className="bg-[#121218] border border-white/10 rounded-2xl p-6 shadow-xl space-y-5">
@@ -247,7 +299,16 @@ export const ImageToPdfPage: React.FC = () => {
                 Selected Images ({images.length})
               </span>
 
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
+                <button
+                  onClick={() => setIsCameraOpen(true)}
+                  className="px-3 py-1.5 rounded-xl bg-brand-gold text-black text-xs font-bold flex items-center gap-1.5 hover:brightness-110 shadow-gold-glow transition active:scale-95"
+                  title="Open Camera to scan more pages"
+                >
+                  <Camera className="w-3.5 h-3.5" />
+                  <span>Scan Document (Camera)</span>
+                </button>
+
                 <button
                   onClick={handleAutoStraightenAll}
                   disabled={isProcessing}
@@ -390,15 +451,28 @@ export const ImageToPdfPage: React.FC = () => {
               ))}
             </div>
 
-            {/* Add More Images */}
-            <FileUploader
-              fileType="image"
-              accept="image/jpeg,image/png,image/webp"
-              multiple={true}
-              title="Add more photos"
-              subtitle="Upload additional images to append"
-              onFilesSelected={handleFilesSelected}
-            />
+            {/* Add More Images or Scan More Pages */}
+            <div className="pt-2 border-t border-white/10 space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold text-zinc-300">Add More Documents</span>
+                <button
+                  onClick={() => setIsCameraOpen(true)}
+                  className="px-3 py-1.5 rounded-xl bg-brand-gold text-black text-xs font-bold flex items-center gap-1.5 hover:brightness-110 shadow-gold-glow transition active:scale-95"
+                >
+                  <Camera className="w-3.5 h-3.5" />
+                  <span>Scan with Camera</span>
+                </button>
+              </div>
+
+              <FileUploader
+                fileType="image"
+                accept="image/jpeg,image/png,image/webp"
+                multiple={true}
+                title="Add more photos"
+                subtitle="Upload additional images to append"
+                onFilesSelected={handleFilesSelected}
+              />
+            </div>
           </div>
 
           <button
@@ -410,6 +484,13 @@ export const ImageToPdfPage: React.FC = () => {
           </button>
         </div>
       )}
+
+      {/* Camera Scanner Full-screen Modal */}
+      <CameraScannerModal
+        isOpen={isCameraOpen}
+        onClose={() => setIsCameraOpen(false)}
+        onComplete={handleCameraPagesScanned}
+      />
 
       {/* Interactive Image Edit Modal */}
       {editingImage && (
