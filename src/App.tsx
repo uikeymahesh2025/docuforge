@@ -41,6 +41,9 @@ import { RepairPage } from './pages/RepairPage';
 import { AboutPage } from './pages/AboutPage';
 import { PrivacyPage } from './pages/PrivacyPage';
 import { TermsPage } from './pages/TermsPage';
+import { RefundPolicyPage } from './pages/RefundPolicyPage';
+import { ContactPage } from './pages/ContactPage';
+import { ProUpgradeModal } from './components/common/ProUpgradeModal';
 
 // Multi-Profession & Wedding Studio Suites
 import { WeddingStudioHubPage } from './pages/wedding/WeddingStudioHubPage';
@@ -133,6 +136,9 @@ export const App: React.FC = () => {
             <Route path="/extract-images" element={<ExtractImagesPage />} />
             <Route path="/about" element={<AboutPage />} />
             <Route path="/privacy" element={<PrivacyPage />} />
+            <Route path="/terms" element={<TermsPage />} />
+            <Route path="/refund-policy" element={<RefundPolicyPage />} />
+            <Route path="/contact" element={<ContactPage />} />
             <Route path="/wedding-studio" element={<WeddingStudioHubPage />} />
             <Route path="/wedding-studio/proofing" element={<WeddingProofingPage />} />
             <Route path="/wedding-studio/quotation" element={<WeddingQuotationPage />} />
@@ -177,6 +183,7 @@ export const App: React.FC = () => {
           </Routes>
         </LayoutWrapper>
         <ToastContainer />
+        <ProUpgradeModal />
       </BrowserRouter>
     </ErrorBoundary>
   );

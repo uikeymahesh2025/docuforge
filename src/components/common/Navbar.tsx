@@ -10,16 +10,19 @@ import {
   FileEdit,
   Sparkles,
   ShieldCheck,
+  Crown,
 } from 'lucide-react';
 import { MegaMenu } from './MegaMenu';
 import { GlobalSearchModal } from './GlobalSearchModal';
 import { useThemeStore } from '../../stores/useThemeStore';
+import { useProStore } from '../../stores/useProStore';
 
 export const Navbar: React.FC = () => {
   const [isMegaMenuOpen, setIsMegaMenuOpen] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const { theme, setTheme } = useThemeStore();
+  const { isPro, openUpgradeModal } = useProStore();
   const location = useLocation();
 
   const toggleTheme = () => {
@@ -157,6 +160,20 @@ export const Navbar: React.FC = () => {
               aria-label="Toggle theme"
             >
               {theme === 'dark' ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+            </button>
+
+            {/* Pro Upgrade / Active Button */}
+            <button
+              onClick={openUpgradeModal}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition shadow-sm ${
+                isPro
+                  ? 'bg-amber-500/15 border border-brand-gold/40 text-brand-gold shadow-gold-glow'
+                  : 'bg-gradient-to-r from-amber-500/20 to-yellow-500/20 border border-brand-gold/40 text-brand-gold hover:from-amber-500 hover:to-amber-600 hover:text-black'
+              }`}
+              title={isPro ? 'Pro Active Lifetime' : 'Upgrade to Pro'}
+            >
+              <Crown className="w-3.5 h-3.5 text-amber-400" />
+              <span>{isPro ? 'PRO Active' : 'Upgrade Pro'}</span>
             </button>
 
             {/* Open Editor CTA Button (No Login, directly opens editor) */}

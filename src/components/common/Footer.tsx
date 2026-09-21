@@ -89,21 +89,29 @@ export const Footer: React.FC = () => {
 
         {/* Company & Legal */}
         <div className="space-y-2">
-          <p className="font-semibold text-zinc-200 text-xs uppercase tracking-wider">Product</p>
+          <p className="font-semibold text-zinc-200 text-xs uppercase tracking-wider">Legal &amp; Trust</p>
           <ul className="space-y-1.5 text-zinc-400">
-            <li><Link to="/about" className="hover:text-brand-gold transition">About UIKEY AI</Link></li>
             <li><Link to="/privacy" className="hover:text-brand-gold transition">Privacy Policy</Link></li>
             <li><Link to="/terms" className="hover:text-brand-gold transition">Terms of Service</Link></li>
-            <li><Link to="/metadata" className="hover:text-brand-gold transition">PDF Metadata</Link></li>
-            <li><Link to="/organize-pdf" className="hover:text-brand-gold transition">Organize PDF</Link></li>
+            <li><Link to="/refund-policy" className="hover:text-brand-gold transition">Refund Policy</Link></li>
+            <li><Link to="/contact" className="hover:text-brand-gold transition">Contact &amp; Support</Link></li>
+            <li><Link to="/about" className="hover:text-brand-gold transition">About UIKEY AI</Link></li>
           </ul>
         </div>
       </div>
 
-      {/* Bottom Copyright */}
+      {/* Bottom Copyright & Trust Badge */}
       <div className="border-t border-white/5 py-6">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-4 text-center sm:text-left text-[11px] text-zinc-500">
-          <p>© 2026 UIKEY AI. All rights reserved.</p>
+          <div className="flex flex-col sm:flex-row items-center gap-3">
+            <p>© 2026 UIKEY AI. All rights reserved.</p>
+            <span className="hidden sm:inline text-zinc-700">•</span>
+            {/* 100% Local Browser Privacy Badge */}
+            <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-[10px] font-bold">
+              <ShieldCheck className="w-3 h-3" />
+              <span>100% Local Browser Privacy</span>
+            </div>
+          </div>
           <p className="flex items-center gap-1">
             Built with modern web standards • Zero trackers • Zero databases
           </p>

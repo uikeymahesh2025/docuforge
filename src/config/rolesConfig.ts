@@ -16,10 +16,21 @@ export interface RoleCategory {
 
 export const ROLES: RoleCategory[] = [
   {
+    id: 'all',
+    name: 'All Tools',
+    emoji: '🌐',
+    label: 'All Tools',
+    tagline: 'Complete manual catalog of 45+ browser-based tools',
+    description: 'Browse the complete unconstrained library of all PDF, document, scanner, and studio tools.',
+    badge: '45+ Tools',
+    featuredToolIds: [],
+    allToolIds: [],
+  },
+  {
     id: 'student',
-    name: 'Student',
+    name: 'Students',
     emoji: '🎓',
-    label: '🎓 Student',
+    label: '🎓 Students',
     tagline: 'Homework, notes, exam form compression & study guides',
     description: 'Designed for students: scan notebooks, compress for exam portals under 200KB, merge lectures, and convert to Word.',
     badge: 'Exam & Notes Ready',
@@ -115,13 +126,13 @@ export const ROLES: RoleCategory[] = [
   },
   {
     id: 'teacher',
-    name: 'Teacher',
+    name: 'Teachers',
     emoji: '👨‍🏫',
-    label: '👨‍🏫 Teacher',
+    label: '👨‍🏫 Teachers',
     tagline: 'Exam papers, question banks, page splitting & watermarking',
     description: 'Built for educators: correct typos in question papers, watermark confidential tests, split pages, and assemble question banks.',
     badge: 'Educator Suite',
-    featuredToolIds: ['pdf-editor', 'add-watermark', 'split-pdf', 'merge-pdf'],
+    featuredToolIds: ['pdf-editor', 'add-watermark', 'split-pdf', 'booklet-formatter'],
     roleSpecificOverrides: {
       'pdf-editor': {
         title: 'Direct Text Edit',
@@ -177,13 +188,13 @@ export const ROLES: RoleCategory[] = [
   },
   {
     id: 'creator',
-    name: 'Creator & Studio',
-    emoji: '🎨',
-    label: '🎨 Creator & Studio',
+    name: 'Creators & Wedding',
+    emoji: '📸',
+    label: '📸 Creators & Wedding',
     tagline: 'Photo proofing, album PDF, WhatsApp shrink & watermark',
     description: 'Tailored for photographers, designers & creators: proof albums with star ratings, make photobooks, and share via WhatsApp.',
     badge: 'Studio Pro',
-    featuredToolIds: ['photo-proofing', 'image-to-pdf', 'compress-pdf', 'add-watermark'],
+    featuredToolIds: ['photo-proofing', 'image-to-pdf', 'carousel-maker', 'compress-pdf'],
     roleSpecificOverrides: {
       'photo-proofing': {
         title: 'Photo Proofing & Selection',
@@ -244,7 +255,7 @@ export const ROLES: RoleCategory[] = [
     tagline: 'ID card print layout, invoices, receipts & digital signing',
     description: 'Designed for cyber cafe owners, shops & retail: 4-in-1/8-in-1 Aadhaar/PAN print layout, instant quotations, and e-signatures.',
     badge: 'Retail Ready',
-    featuredToolIds: ['id-card-layout', 'wedding-quotation', 'sign-pdf', 'scan-to-pdf'],
+    featuredToolIds: ['id-card-layout', 'wedding-quotation', 'sign-pdf', 'stamp-qr-overlay'],
     roleSpecificOverrides: {
       'id-card-layout': {
         title: 'ID Card 4-in-1/8-in-1 Print Layout',
@@ -332,7 +343,7 @@ export const ROLES: RoleCategory[] = [
     tagline: 'Direct text edit, Excel export, password protect & legal Bates',
     description: 'Essential toolkit for office desks, legal teams & administrators: direct PDF text editing, Excel conversions, encryption, and Bates stamps.',
     badge: 'Corporate Grade',
-    featuredToolIds: ['pdf-editor', 'pdf-to-excel', 'protect-pdf', 'bates-numbering'],
+    featuredToolIds: ['pdf-editor', 'pdf-to-excel', 'sign-pdf', 'repair-pdf'],
     roleSpecificOverrides: {
       'pdf-editor': {
         title: 'Direct Text Edit',
@@ -340,9 +351,19 @@ export const ROLES: RoleCategory[] = [
         badge: 'Direct Edit',
       },
       'pdf-to-excel': {
-        title: 'PDF to Excel',
+        title: 'PDF to Excel / Word',
         subtitle: 'Extract financial balances, ledgers, invoice data, and tables cleanly into spreadsheet format.',
         badge: 'Tables & Ledger',
+      },
+      'sign-pdf': {
+        title: 'Digital e-Sign',
+        subtitle: 'Legally sign vendor contracts, agreements, NDAs, and corporate authorizations.',
+        badge: 'Legal e-Sign',
+      },
+      'repair-pdf': {
+        title: 'Repair Damaged PDF',
+        subtitle: 'Fix corrupted corporate PDF files, unreadable indexes, and rebuild syntax trees.',
+        badge: 'Recovery',
       },
       'protect-pdf': {
         title: 'Password Protect',
@@ -423,16 +444,5 @@ export const ROLES: RoleCategory[] = [
       'merge-pdf',
       'split-pdf',
     ],
-  },
-  {
-    id: 'all',
-    name: 'All Tools',
-    emoji: '🌐',
-    label: '🌐 All Tools',
-    tagline: 'Complete manual catalog of 45+ browser-based tools',
-    description: 'Browse the complete unconstrained library of all PDF, document, scanner, and studio tools.',
-    badge: '45+ Tools',
-    featuredToolIds: ['pdf-editor', 'merge-pdf', 'split-pdf', 'compress-pdf'],
-    allToolIds: [], // Empty means all
   },
 ];

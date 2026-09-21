@@ -1,5 +1,6 @@
 import React from 'react';
-import { FileText, CheckCircle2 } from 'lucide-react';
+import { FileText, CheckCircle2, ShieldAlert, Building2, UserCheck, Briefcase } from 'lucide-react';
+import { Link } from 'react-router-dom';
 
 export const TermsPage: React.FC = () => {
   return (
@@ -12,41 +13,82 @@ export const TermsPage: React.FC = () => {
           Terms of <span className="text-brand-gold">Service</span>
         </h1>
         <p className="text-sm text-zinc-400 max-w-xl mx-auto">
-          Terms governing the use of PDF EDITOR BY UIKEY AI utilities.
+          Terms governing fair personal, educational, and commercial utility usage of UIKEY AI.
         </p>
       </div>
 
-      <div className="bg-[#121218] border border-white/10 rounded-3xl p-8 sm:p-12 shadow-2xl space-y-6 text-sm leading-relaxed">
+      <div className="bg-[#121218] border border-white/10 rounded-3xl p-8 sm:p-12 shadow-2xl space-y-8 text-sm leading-relaxed">
         <section className="space-y-2">
-          <h2 className="text-base font-bold text-white">1. Acceptance of Terms</h2>
+          <h2 className="text-base font-bold text-white flex items-center gap-2">
+            <CheckCircle2 className="w-5 h-5 text-brand-gold" />
+            <span>1. Acceptance of Terms</span>
+          </h2>
           <p className="text-zinc-400">
-            By accessing or using the PDF EDITOR BY UIKEY AI web application, you agree to comply with and be bound by these Terms of Service. If you do not agree to these terms, please do not use our utilities.
+            By accessing or using the UIKEY AI web application and PDF tool suite, you agree to comply with and be bound by these Terms of Service. If you do not agree with any part of these terms, please discontinue use immediately.
           </p>
         </section>
 
         <section className="space-y-2">
-          <h2 className="text-base font-bold text-white">2. Document Ownership &amp; Privacy</h2>
+          <h2 className="text-base font-bold text-white flex items-center gap-2">
+            <Briefcase className="w-5 h-5 text-brand-gold" />
+            <span>2. Commercial &amp; Personal Utility Use</span>
+          </h2>
           <p className="text-zinc-400">
-            You retain 100% of all rights, ownership, and copyright in and to all documents uploaded or processed through the application. UIKEY AI does not claim any intellectual property rights over your documents.
+            UIKEY AI grants you a non-exclusive, worldwide, royalty-free license to use all tools for both <strong>personal and commercial purposes</strong>. This includes:
+          </p>
+          <ul className="space-y-1.5 text-zinc-400 pl-4 list-disc">
+            <li>Students and educators editing assignments, research papers, and exam booklets.</li>
+            <li>Commercial cyber cafe operators and print shops creating ID card layouts and customer forms.</li>
+            <li>Law firms, advocates, and notary desks stamping Bates numbers and organizing court bundles.</li>
+            <li>Photographers, wedding studios, and creators delivering client photo proofing and quotations.</li>
+            <li>Corporations and small businesses processing receipts, ledgers, contracts, and invoices.</li>
+          </ul>
+        </section>
+
+        <section className="space-y-2">
+          <h2 className="text-base font-bold text-white flex items-center gap-2">
+            <Building2 className="w-5 h-5 text-brand-gold" />
+            <span>3. Document Ownership &amp; Confidentiality</span>
+          </h2>
+          <p className="text-zinc-400">
+            You retain 100% of all intellectual property, copyright, and ownership rights in and to all documents and images processed through UIKEY AI. Because processing occurs client-side in your local browser, UIKEY AI never acquires any license, access, or custody over your document contents.
           </p>
         </section>
 
         <section className="space-y-2">
-          <h2 className="text-base font-bold text-white">3. Acceptable Use</h2>
+          <h2 className="text-base font-bold text-white flex items-center gap-2">
+            <ShieldAlert className="w-5 h-5 text-brand-gold" />
+            <span>4. Acceptable Fair Use</span>
+          </h2>
           <p className="text-zinc-400">
-            You agree not to use the service for any illegal activities, including but not limited to the distribution of malicious software, unauthorized document forgery, copyright infringement, or violation of third-party privacy.
+            You agree not to use the utilities to forge official government seals without authority, alter identity documents fraudulently, generate deceptive documents, distribute malware, or infringe on any party's intellectual property.
           </p>
         </section>
 
         <section className="space-y-2">
-          <h2 className="text-base font-bold text-white">4. Disclaimer of Warranty</h2>
+          <h2 className="text-base font-bold text-white flex items-center gap-2">
+            <UserCheck className="w-5 h-5 text-brand-gold" />
+            <span>5. Pro Upgrades &amp; Licensing</span>
+          </h2>
           <p className="text-zinc-400">
-            The service is provided on an "as is" and "as available" basis without warranties of any kind. While we design our PDF engine to be highly robust and reliable, UIKEY AI is not liable for data loss or formatting discrepancies resulting from corrupted or malformed source files.
+            Pro upgrades provide lifetime access to enhanced utility limits and priority processing. All Pro licenses are governed by our <Link to="/refund-policy" className="text-brand-gold underline hover:text-amber-300">14-Day Money-Back Refund Policy</Link>.
           </p>
         </section>
 
-        <div className="pt-4 border-t border-white/10 text-xs text-zinc-500">
-          © 2026 UIKEY AI. All rights reserved.
+        <section className="space-y-2">
+          <h2 className="text-base font-bold text-white">6. Limitation of Liability</h2>
+          <p className="text-zinc-400">
+            The software is provided "as is", without warranty of any kind. In no event shall UIKEY AI or its authors be liable for any direct, indirect, incidental, or consequential damages arising out of the use or inability to use the tools.
+          </p>
+        </section>
+
+        <div className="pt-6 border-t border-white/10 flex items-center justify-between text-xs text-zinc-500">
+          <span>© 2026 UIKEY AI. All rights reserved.</span>
+          <div className="flex gap-4">
+            <Link to="/privacy" className="text-zinc-400 hover:text-brand-gold">Privacy Policy</Link>
+            <Link to="/refund-policy" className="text-zinc-400 hover:text-brand-gold">Refund Policy</Link>
+            <Link to="/contact" className="text-zinc-400 hover:text-brand-gold">Support</Link>
+          </div>
         </div>
       </div>
     </div>

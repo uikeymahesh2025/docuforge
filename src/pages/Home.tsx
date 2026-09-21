@@ -34,9 +34,9 @@ export const Home: React.FC = () => {
   const [activeCategory, setActiveCategory] = useState<string>('all');
   const [selectedRole, setSelectedRole] = useState<string>(() => {
     try {
-      return localStorage.getItem('uikey_active_role') || 'student';
+      return localStorage.getItem('uikey_active_role') || 'all';
     } catch {
-      return 'student';
+      return 'all';
     }
   });
   const [showOtherTools, setShowOtherTools] = useState<boolean>(false);
@@ -357,7 +357,7 @@ export const Home: React.FC = () => {
                       <span>
                         {showOtherTools
                           ? 'Hide Additional Tools'
-                          : 'Show All Other Tools (Manual Access)'}
+                          : 'View All Other Tools (Manual Access)'}
                       </span>
                       <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-400/10 text-amber-400 border border-amber-400/20">
                         {otherTools.length} More Tools
