@@ -48,6 +48,11 @@ import { WeddingProofingPage } from './pages/wedding/WeddingProofingPage';
 import { WeddingQuotationPage } from './pages/wedding/WeddingQuotationPage';
 import { WeddingGuestCardsPage } from './pages/wedding/WeddingGuestCardsPage';
 import { IdCardLayoutPage } from './pages/tools/IdCardLayoutPage';
+import { AudioReaderPage } from './pages/tools/AudioReaderPage';
+import { StampQrOverlayPage } from './pages/tools/StampQrOverlayPage';
+import { BookletFormatterPage } from './pages/tools/BookletFormatterPage';
+import { GovtFormResizerPage } from './pages/tools/GovtFormResizerPage';
+import { CarouselMakerPage } from './pages/tools/CarouselMakerPage';
 
 // Scroll to top on route change
 function ScrollToTop() {
@@ -125,6 +130,17 @@ export const App: React.FC = () => {
             <Route path="/wedding-studio/guest-cards" element={<WeddingGuestCardsPage />} />
             <Route path="/tools/id-card-layout" element={<IdCardLayoutPage />} />
             <Route path="/id-card-layout" element={<IdCardLayoutPage />} />
+            {/* Advanced Utility Modules */}
+            <Route path="/tools/listen-pdf" element={<AudioReaderPage />} />
+            <Route path="/listen-pdf" element={<AudioReaderPage />} />
+            <Route path="/tools/stamp-qr-overlay" element={<StampQrOverlayPage />} />
+            <Route path="/stamp-qr-overlay" element={<StampQrOverlayPage />} />
+            <Route path="/tools/booklet-formatter" element={<BookletFormatterPage />} />
+            <Route path="/booklet-formatter" element={<BookletFormatterPage />} />
+            <Route path="/tools/govt-form-resizer" element={<GovtFormResizerPage />} />
+            <Route path="/govt-form-resizer" element={<GovtFormResizerPage />} />
+            <Route path="/tools/carousel-maker" element={<CarouselMakerPage />} />
+            <Route path="/carousel-maker" element={<CarouselMakerPage />} />
             {/* Fallback route */}
             <Route path="*" element={<Home />} />
           </Routes>

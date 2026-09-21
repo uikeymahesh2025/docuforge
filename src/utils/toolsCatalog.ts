@@ -381,6 +381,52 @@ export const TOOLS: ToolItem[] = [
     path: '/bates-numbering',
     icon: 'Hash',
   },
+  // Advanced Utilities & Innovation
+  {
+    id: 'listen-pdf',
+    name: 'Audio PDF Reader',
+    description: 'Listen to PDF documents with Hindi & English text-to-speech voice controls, speed tuning and sentence highlighting.',
+    category: 'other',
+    path: '/tools/listen-pdf',
+    icon: 'Headphones',
+    badge: 'Voice AI',
+  },
+  {
+    id: 'stamp-qr-overlay',
+    name: 'Stamp, Seal & QR Inserter',
+    description: 'Bake official circular/rectangular rubber seals ("APPROVED", "CONFIDENTIAL") and dynamic vector QR/barcodes onto any page.',
+    category: 'edit',
+    path: '/tools/stamp-qr-overlay',
+    icon: 'QrCode',
+    badge: 'Official Seal',
+  },
+  {
+    id: 'booklet-formatter',
+    name: 'Booklet Print Formatter',
+    description: 'Impose 2-up or 4-up pages onto single A4/Letter sheets with folding cut-lines to save 50%-75% printing paper.',
+    category: 'page-tools',
+    path: '/tools/booklet-formatter',
+    icon: 'BookOpen',
+    badge: 'Paper Saver',
+  },
+  {
+    id: 'govt-form-resizer',
+    name: 'Govt Exam Photo Resizer',
+    description: 'Exact pixel dimension and target KB compressor for SSC, UPSC, IBPS, NTA recruitment application forms.',
+    category: 'optimize',
+    path: '/tools/govt-form-resizer',
+    icon: 'Camera',
+    badge: 'Govt Exam Pro',
+  },
+  {
+    id: 'carousel-maker',
+    name: 'Social Media Carousel Maker',
+    description: 'Convert PDF slides and notes into 1080x1350 vertical or 1080x1080 square Instagram/LinkedIn carousel images with 1-click ZIP export.',
+    category: 'convert-from',
+    path: '/tools/carousel-maker',
+    icon: 'Share2',
+    badge: 'Instagram & LinkedIn',
+  },
 ];
 
 export const CATEGORY_LABELS: Record<string, string> = {

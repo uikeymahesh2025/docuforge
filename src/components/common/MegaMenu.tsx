@@ -47,6 +47,10 @@ import {
   Tag,
   CreditCard,
   Heart,
+  Headphones,
+  QrCode,
+  BookOpen,
+  Share2,
 } from 'lucide-react';
 import { ToolItem, ToolCategory } from '../../types';
 import { TOOLS, CATEGORY_LABELS } from '../../utils/toolsCatalog';
@@ -97,6 +101,10 @@ export const ICON_MAP: Record<string, React.ElementType> = {
   Tag,
   CreditCard,
   Heart,
+  Headphones,
+  QrCode,
+  BookOpen,
+  Share2,
 };
 
 interface MegaMenuProps {

@@ -1656,3 +1656,254 @@ export async function repairPdf(sourceBytes: Uint8Array): Promise<RepairResult> 
   }
 }
 
+// 18. STAMP, SEAL & QR CODE PDF INSERTER ENGINE
+export interface StampQrOverlayItem {
+  id: string;
+  pageNumber: number;
+  x: number; // PDF points from left
+  y: number; // PDF points from top (converted inside function)
+  width: number;
+  height: number;
+  dataUrl: string;
+  opacity?: number;
+}
+
+export async function bakeCustomStampOrQrOnPdf(
+  sourceBytes: Uint8Array,
+  overlays: StampQrOverlayItem[]
+): Promise<Uint8Array> {
+  const doc = await PDFDocument.load(sourceBytes, { ignoreEncryption: true });
+  const totalPages = doc.getPageCount();
+
+  const overlaysByPage = new Map<number, StampQrOverlayItem[]>();
+  for (const item of overlays) {
+    const list = overlaysByPage.get(item.pageNumber) || [];
+    list.push(item);
+    overlaysByPage.set(item.pageNumber, list);
+  }
+
+  for (let pageIdx = 0; pageIdx < totalPages; pageIdx++) {
+    const pageNum = pageIdx + 1;
+    const page = doc.getPage(pageIdx);
+    const { height: pageH } = page.getSize();
+
+    const items = overlaysByPage.get(pageNum) || [];
+    for (const item of items) {
+      if (!item.dataUrl) continue;
+      try {
+        let embedded: any;
+        if (item.dataUrl.startsWith('data:image/png')) {
+          embedded = await doc.embedPng(item.dataUrl);
+        } else {
+          embedded = await doc.embedJpg(item.dataUrl);
+        }
+
+        // Convert top-down screen Y to bottom-up PDF Y
+        const pdfY = pageH - item.y - item.height;
+
+        page.drawImage(embedded, {
+          x: item.x,
+          y: pdfY,
+          width: item.width,
+          height: item.height,
+          opacity: item.opacity ?? 1,
+        });
+      } catch (err) {
+        console.warn('Failed embedding stamp/QR overlay:', err);
+      }
+    }
+  }
+
+  return await doc.save({ useObjectStreams: true });
+}
+
+// 19. BOOKLET & N-UP IMPOSITION FORMATTER (2-UP & 4-UP)
+export interface BookletFormatOptions {
+  mode: '2-up' | '4-up';
+  sheetSize: 'A4' | 'Letter';
+  orientation: 'landscape' | 'portrait';
+  drawCutLines: boolean;
+  marginPt: number;
+}
+
+export async function formatBookletPdf(
+  sourceBytes: Uint8Array,
+  options: BookletFormatOptions
+): Promise<Uint8Array> {
+  const sourceDoc = await PDFDocument.load(sourceBytes, { ignoreEncryption: true });
+  const targetDoc = await PDFDocument.create();
+  const totalSourcePages = sourceDoc.getPageCount();
+
+  if (totalSourcePages === 0) {
+    return sourceBytes;
+  }
+
+  // Base dimensions in points (1 inch = 72 pt)
+  // A4: 595.28 x 841.89 pt, Letter: 612 x 792 pt
+  let sheetW = options.sheetSize === 'Letter' ? 612 : 595.28;
+  let sheetH = options.sheetSize === 'Letter' ? 792 : 841.89;
+
+  // For 2-up standard layout, landscape is typical. For portrait, swap dimensions.
+  if (options.orientation === 'landscape') {
+    if (sheetW < sheetH) {
+      const tmp = sheetW;
+      sheetW = sheetH;
+      sheetH = tmp;
+    }
+  } else {
+    if (sheetW > sheetH) {
+      const tmp = sheetW;
+      sheetW = sheetH;
+      sheetH = tmp;
+    }
+  }
+
+  const margin = options.marginPt || 16;
+  const usableW = sheetW - margin * 2;
+  const usableH = sheetH - margin * 2;
+
+  const is2Up = options.mode === '2-up';
+  const pagesPerSheet = is2Up ? 2 : 4;
+
+  for (let i = 0; i < totalSourcePages; i += pagesPerSheet) {
+    const sheet = targetDoc.addPage([sheetW, sheetH]);
+
+    if (is2Up) {
+      // 2 columns side-by-side
+      const cellW = usableW / 2;
+      const cellH = usableH;
+
+      for (let slot = 0; slot < 2; slot++) {
+        const pageIndex = i + slot;
+        if (pageIndex >= totalSourcePages) break;
+
+        const origPage = sourceDoc.getPage(pageIndex);
+        const embedded = await targetDoc.embedPage(origPage);
+        const { width: origW, height: origH } = origPage.getSize();
+
+        // Fit inside cell preserving aspect ratio with padding
+        const pad = 8;
+        const targetCellW = cellW - pad * 2;
+        const targetCellH = cellH - pad * 2;
+        const scale = Math.min(targetCellW / origW, targetCellH / origH);
+
+        const scaledW = origW * scale;
+        const scaledH = origH * scale;
+
+        const cellX = margin + slot * cellW;
+        const cellY = margin;
+
+        // Center within cell
+        const drawX = cellX + (cellW - scaledW) / 2;
+        const drawY = cellY + (cellH - scaledH) / 2;
+
+        sheet.drawPage(embedded, {
+          x: drawX,
+          y: drawY,
+          width: scaledW,
+          height: scaledH,
+        });
+
+        // Thin bounding box around page
+        sheet.drawRectangle({
+          x: drawX,
+          y: drawY,
+          width: scaledW,
+          height: scaledH,
+          borderColor: rgb(0.85, 0.85, 0.88),
+          borderWidth: 0.5,
+          opacity: 0.6,
+        });
+      }
+
+      // Draw center fold / cut line if enabled
+      if (options.drawCutLines) {
+        const midX = sheetW / 2;
+        sheet.drawLine({
+          start: { x: midX, y: margin / 2 },
+          end: { x: midX, y: sheetH - margin / 2 },
+          color: rgb(0.65, 0.65, 0.7),
+          thickness: 0.75,
+          opacity: 0.5,
+          dashArray: [4, 4],
+        });
+      }
+    } else {
+      // 4-up: 2x2 grid (2 columns x 2 rows)
+      const cellW = usableW / 2;
+      const cellH = usableH / 2;
+
+      for (let slot = 0; slot < 4; slot++) {
+        const pageIndex = i + slot;
+        if (pageIndex >= totalSourcePages) break;
+
+        const origPage = sourceDoc.getPage(pageIndex);
+        const embedded = await targetDoc.embedPage(origPage);
+        const { width: origW, height: origH } = origPage.getSize();
+
+        const col = slot % 2;
+        const row = Math.floor(slot / 2); // 0 = top, 1 = bottom
+
+        const pad = 6;
+        const targetCellW = cellW - pad * 2;
+        const targetCellH = cellH - pad * 2;
+        const scale = Math.min(targetCellW / origW, targetCellH / origH);
+
+        const scaledW = origW * scale;
+        const scaledH = origH * scale;
+
+        const cellX = margin + col * cellW;
+        // In PDF coordinate system, row 0 is at top (high Y)
+        const cellY = margin + (1 - row) * cellH;
+
+        const drawX = cellX + (cellW - scaledW) / 2;
+        const drawY = cellY + (cellH - scaledH) / 2;
+
+        sheet.drawPage(embedded, {
+          x: drawX,
+          y: drawY,
+          width: scaledW,
+          height: scaledH,
+        });
+
+        sheet.drawRectangle({
+          x: drawX,
+          y: drawY,
+          width: scaledW,
+          height: scaledH,
+          borderColor: rgb(0.85, 0.85, 0.88),
+          borderWidth: 0.5,
+          opacity: 0.6,
+        });
+      }
+
+      // Draw cross cut-lines if enabled
+      if (options.drawCutLines) {
+        const midX = sheetW / 2;
+        const midY = sheetH / 2;
+
+        // Vertical line
+        sheet.drawLine({
+          start: { x: midX, y: margin / 2 },
+          end: { x: midX, y: sheetH - margin / 2 },
+          color: rgb(0.65, 0.65, 0.7),
+          thickness: 0.75,
+          opacity: 0.5,
+          dashArray: [4, 4],
+        });
+
+        // Horizontal line
+        sheet.drawLine({
+          start: { x: margin / 2, y: midY },
+          end: { x: sheetW - margin / 2, y: midY },
+          color: rgb(0.65, 0.65, 0.7),
+          thickness: 0.75,
+          opacity: 0.5,
+          dashArray: [4, 4],
+        });
+      }
+    }
+  }
+
+  return await targetDoc.save({ useObjectStreams: true });
+}
