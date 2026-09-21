@@ -1,4 +1,4 @@
-import { PDFDocument, rgb, degrees, StandardFonts, PageSizes } from 'pdf-lib';
+import { PDFDocument, rgb, degrees, StandardFonts, PageSizes, PDFName, PDFHexString } from 'pdf-lib';
 import JSZip from 'jszip';
 import { Document, Paragraph, TextRun, Packer, HeadingLevel, ImageRun } from 'docx';
 import {
@@ -1907,3 +1907,232 @@ export async function formatBookletPdf(
 
   return await targetDoc.save({ useObjectStreams: true });
 }
+
+// 20. SMART BOOKMARKS & INTERACTIVE TABLE OF CONTENTS
+export interface BookmarkItem {
+  id: string;
+  title: string;
+  pageNumber: number; // 1-indexed
+  level?: number;
+}
+
+export async function addBookmarksToPdf(
+  sourceBytes: Uint8Array,
+  bookmarks: BookmarkItem[]
+): Promise<Uint8Array> {
+  const doc = await PDFDocument.load(sourceBytes, { ignoreEncryption: true });
+  const context = doc.context;
+  const pageCount = doc.getPageCount();
+
+  if (bookmarks.length === 0 || pageCount === 0) {
+    return sourceBytes;
+  }
+
+  // Create Outline hierarchy in PDF document catalog
+  const outlinesDictRef = context.nextRef();
+  const outlinesDict = context.obj({
+    Type: 'Outlines',
+    Count: bookmarks.length,
+  });
+
+  const itemRefs: any[] = [];
+  for (let i = 0; i < bookmarks.length; i++) {
+    itemRefs.push(context.nextRef());
+  }
+
+  outlinesDict.set(PDFName.of('First'), itemRefs[0]);
+  outlinesDict.set(PDFName.of('Last'), itemRefs[itemRefs.length - 1]);
+  context.assign(outlinesDictRef, outlinesDict);
+
+  for (let i = 0; i < bookmarks.length; i++) {
+    const bm = bookmarks[i];
+    const targetPageIdx = Math.max(0, Math.min(pageCount - 1, bm.pageNumber - 1));
+    const pageRef = doc.getPage(targetPageIdx).ref;
+
+    const destArray = context.obj([pageRef, PDFName.of('Fit')]);
+
+    const itemDict: Record<string, any> = {
+      Title: PDFHexString.fromText(bm.title),
+      Parent: outlinesDictRef,
+      Dest: destArray,
+    };
+
+    if (i > 0) {
+      itemDict.Prev = itemRefs[i - 1];
+    }
+    if (i < bookmarks.length - 1) {
+      itemDict.Next = itemRefs[i + 1];
+    }
+
+    context.assign(itemRefs[i], context.obj(itemDict));
+  }
+
+  doc.catalog.set(PDFName.of('Outlines'), outlinesDictRef);
+  return await doc.save({ useObjectStreams: true });
+}
+
+// 21. INK SAVER & GRAYSCALE CONVERTER
+export interface InkSaverOptions {
+  mode: 'grayscale' | 'ink-saver' | 'monochrome';
+  contrastThreshold?: number; // 0..255 (default ~210 for ink-saver background removal)
+  quality?: number; // 0.1..1.0
+}
+
+export async function convertPdfToInkSaver(
+  sourceBytes: Uint8Array,
+  options: InkSaverOptions
+): Promise<Uint8Array> {
+  const pdfjsDoc = await loadPdfDocument(sourceBytes);
+  const targetDoc = await PDFDocument.create();
+  const totalPages = pdfjsDoc.numPages;
+
+  const threshold = options.contrastThreshold ?? 210;
+  const quality = options.quality ?? 0.85;
+
+  for (let p = 1; p <= totalPages; p++) {
+    const page = await pdfjsDoc.getPage(p);
+    const viewport = page.getViewport({ scale: 2.0 });
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.floor(viewport.width);
+    canvas.height = Math.floor(viewport.height);
+    const ctx = canvas.getContext('2d');
+    if (!ctx) continue;
+
+    await page.render({ canvasContext: ctx, viewport } as any).promise;
+
+    const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const d = imgData.data;
+
+    for (let i = 0; i < d.length; i += 4) {
+      const r = d[i];
+      const g = d[i + 1];
+      const b = d[i + 2];
+      const gray = 0.299 * r + 0.587 * g + 0.114 * b;
+
+      if (options.mode === 'ink-saver') {
+        // Drop light tints and colored fills to pure white (#FFFFFF)
+        if (gray >= threshold) {
+          d[i] = 255;
+          d[i + 1] = 255;
+          d[i + 2] = 255;
+        } else {
+          // Darken text for high contrast readability
+          const boost = Math.max(0, gray - 20);
+          d[i] = boost;
+          d[i + 1] = boost;
+          d[i + 2] = boost;
+        }
+      } else if (options.mode === 'monochrome') {
+        const val = gray >= 150 ? 255 : 0;
+        d[i] = val;
+        d[i + 1] = val;
+        d[i + 2] = val;
+      } else {
+        d[i] = gray;
+        d[i + 1] = gray;
+        d[i + 2] = gray;
+      }
+    }
+
+    ctx.putImageData(imgData, 0, 0);
+
+    const dataUrl = canvas.toDataURL('image/jpeg', quality);
+    const embeddedImg = await targetDoc.embedJpg(dataUrl);
+    const unscaledViewport = page.getViewport({ scale: 1.0 });
+    const newPage = targetDoc.addPage([unscaledViewport.width, unscaledViewport.height]);
+    newPage.drawImage(embeddedImg, {
+      x: 0,
+      y: 0,
+      width: unscaledViewport.width,
+      height: unscaledViewport.height,
+    });
+  }
+
+  return await targetDoc.save({ useObjectStreams: true });
+}
+
+// 22. WIPE PDF METADATA
+export async function wipePdfMetadata(sourceBytes: Uint8Array): Promise<Uint8Array> {
+  const doc = await PDFDocument.load(sourceBytes, { ignoreEncryption: true });
+  doc.setTitle('');
+  doc.setAuthor('');
+  doc.setSubject('');
+  doc.setKeywords([]);
+  doc.setProducer('PDF Suite');
+  doc.setCreator('PDF Suite');
+  try {
+    doc.catalog.delete(PDFName.of('Metadata'));
+  } catch {
+    // ignore
+  }
+  return await doc.save({ useObjectStreams: true });
+}
+
+// 23. BAKE INTERACTIVE FORM FIELDS
+export interface FormFieldValue {
+  id: string;
+  type: 'text' | 'checkbox' | 'date';
+  pageNumber: number; // 1-indexed
+  x: number; // pt coordinates
+  y: number;
+  width: number;
+  height: number;
+  value: string | boolean;
+  fontSize?: number;
+}
+
+export async function bakeFormFieldsOnPdf(
+  sourceBytes: Uint8Array,
+  fields: FormFieldValue[]
+): Promise<Uint8Array> {
+  const doc = await PDFDocument.load(sourceBytes, { ignoreEncryption: true });
+  const font = await doc.embedFont(StandardFonts.HelveticaBold);
+  const totalPages = doc.getPageCount();
+
+  for (const field of fields) {
+    const pageIndex = field.pageNumber - 1;
+    if (pageIndex < 0 || pageIndex >= totalPages) continue;
+    const page = doc.getPage(pageIndex);
+    const { height: pageH } = page.getSize();
+
+    const pdfY = pageH - field.y - field.height;
+
+    if (field.type === 'checkbox') {
+      page.drawRectangle({
+        x: field.x,
+        y: pdfY,
+        width: field.width,
+        height: field.height,
+        borderColor: rgb(0.2, 0.2, 0.2),
+        borderWidth: 1.5,
+        color: rgb(1, 1, 1),
+      });
+
+      if (field.value === true || field.value === 'true') {
+        const checkSize = Math.min(field.width, field.height) * 0.75;
+        page.drawText('X', {
+          x: field.x + (field.width - checkSize) / 2 + 1,
+          y: pdfY + (field.height - checkSize) / 2,
+          size: checkSize,
+          font,
+          color: rgb(0.1, 0.5, 0.2),
+        });
+      }
+    } else {
+      const strVal = String(field.value || '');
+      if (strVal.trim()) {
+        const fs = field.fontSize || 12;
+        page.drawText(strVal, {
+          x: field.x + 3,
+          y: pdfY + (field.height - fs) / 2 + 1,
+          size: fs,
+          font,
+          color: rgb(0.05, 0.05, 0.1),
+        });
+      }
+    }
+  }
+
+  return await doc.save({ useObjectStreams: true });
+}
+

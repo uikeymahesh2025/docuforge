@@ -1,8 +1,27 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Columns2, ChevronLeft, ChevronRight, AlertCircle, Eye, Sliders, RefreshCw, CheckCircle2, Flame } from 'lucide-react';
+import {
+  Columns2,
+  ChevronLeft,
+  ChevronRight,
+  AlertCircle,
+  Eye,
+  Sliders,
+  RefreshCw,
+  CheckCircle2,
+  Flame,
+  FileText,
+  PlusCircle,
+  MinusCircle,
+  Sparkles,
+} from 'lucide-react';
 import { FileUploader } from '../components/tools/FileUploader';
 import { loadPdfDocument, renderPageToCanvas } from '../pdf/pdfManager';
 import { useToastStore } from '../stores/useToastStore';
+
+interface TextDiffItem {
+  type: 'unchanged' | 'added' | 'removed';
+  text: string;
+}
 
 export const ComparePage: React.FC = () => {
   const [docABytes, setDocABytes] = useState<Uint8Array | null>(null);
@@ -14,14 +33,120 @@ export const ComparePage: React.FC = () => {
   const [countA, setCountA] = useState(1);
   const [countB, setCountB] = useState(1);
   const [syncPages, setSyncPages] = useState(true);
-  const [viewMode, setViewMode] = useState<'split' | 'diff'>('split');
+  const [viewMode, setViewMode] = useState<'split' | 'diff' | 'text'>('split');
   const [diffStats, setDiffStats] = useState<{ similarity: number; diffPixels: number } | null>(null);
+
+  // Text diff states
+  const [textA, setTextA] = useState<string>('');
+  const [textB, setTextB] = useState<string>('');
+  const [textDiffs, setTextDiffs] = useState<TextDiffItem[]>([]);
+  const [textStats, setTextStats] = useState<{ added: number; removed: number; matched: number }>({
+    added: 0,
+    removed: 0,
+    matched: 0,
+  });
+  const [isLoadingText, setIsLoadingText] = useState<boolean>(false);
 
   const canvasARef = useRef<HTMLCanvasElement>(null);
   const canvasBRef = useRef<HTMLCanvasElement>(null);
   const canvasDiffRef = useRef<HTMLCanvasElement>(null);
 
   const addToast = useToastStore((state) => state.addToast);
+
+  const extractPageText = async (bytes: Uint8Array, pageNum: number): Promise<string> => {
+    try {
+      const doc = await loadPdfDocument(bytes);
+      if (pageNum < 1 || pageNum > doc.numPages) return '';
+      const page = await doc.getPage(pageNum);
+      const textContent = await page.getTextContent();
+      const lines: string[] = [];
+      let currentLine = '';
+      let lastY: number | null = null;
+
+      for (const item of textContent.items as any[]) {
+        if (!item.str) continue;
+        const y = Math.round(item.transform[5]);
+        if (lastY === null || Math.abs(y - lastY) > 5) {
+          if (currentLine) lines.push(currentLine.trim());
+          currentLine = item.str;
+          lastY = y;
+        } else {
+          currentLine += (currentLine.endsWith(' ') ? '' : ' ') + item.str;
+        }
+      }
+      if (currentLine) lines.push(currentLine.trim());
+      return lines.join('\n');
+    } catch {
+      return '';
+    }
+  };
+
+  const computeTextDiff = (rawA: string, rawB: string) => {
+    const wordsA = rawA.split(/(\s+)/);
+    const wordsB = rawB.split(/(\s+)/);
+
+    const diffs: TextDiffItem[] = [];
+    const setB = new Set(wordsB.filter((w) => w.trim()));
+    const setA = new Set(wordsA.filter((w) => w.trim()));
+
+    let addedCount = 0;
+    let removedCount = 0;
+    let matchCount = 0;
+
+    // Simple LCS-like word diff approximation
+    let ptrA = 0;
+    let ptrB = 0;
+
+    while (ptrA < wordsA.length || ptrB < wordsB.length) {
+      if (ptrA < wordsA.length && ptrB < wordsB.length && wordsA[ptrA] === wordsB[ptrB]) {
+        diffs.push({ type: 'unchanged', text: wordsA[ptrA] });
+        if (wordsA[ptrA].trim()) matchCount++;
+        ptrA++;
+        ptrB++;
+      } else if (ptrA < wordsA.length && !setB.has(wordsA[ptrA]) && wordsA[ptrA].trim()) {
+        diffs.push({ type: 'removed', text: wordsA[ptrA] });
+        removedCount++;
+        ptrA++;
+      } else if (ptrB < wordsB.length && !setA.has(wordsB[ptrB]) && wordsB[ptrB].trim()) {
+        diffs.push({ type: 'added', text: wordsB[ptrB] });
+        addedCount++;
+        ptrB++;
+      } else if (ptrA < wordsA.length) {
+        diffs.push({ type: 'removed', text: wordsA[ptrA] });
+        if (wordsA[ptrA].trim()) removedCount++;
+        ptrA++;
+      } else {
+        diffs.push({ type: 'added', text: wordsB[ptrB] });
+        if (wordsB[ptrB].trim()) addedCount++;
+        ptrB++;
+      }
+    }
+
+    setTextDiffs(diffs);
+    setTextStats({ added: addedCount, removed: removedCount, matched: matchCount });
+  };
+
+  const loadTextDiffsForCurrentPages = async () => {
+    if (!docABytes || !docBBytes) return;
+    setIsLoadingText(true);
+    try {
+      const [tA, tB] = await Promise.all([
+        extractPageText(docABytes, pageA),
+        extractPageText(docBBytes, pageB),
+      ]);
+      setTextA(tA);
+      setTextB(tB);
+      computeTextDiff(tA, tB);
+    } finally {
+      setIsLoadingText(false);
+    }
+  };
+
+  useEffect(() => {
+    if (viewMode === 'text' && docABytes && docBBytes) {
+      loadTextDiffsForCurrentPages();
+    }
+  }, [viewMode, pageA, pageB, docABytes, docBBytes]);
 
   const handleUploadA = async (files: File[]) => {
     if (!files[0]) return;
@@ -121,13 +246,11 @@ export const ComparePage: React.FC = () => {
 
       if (delta > 40) {
         diffCount++;
-        // Glow neon red / magenta for differences
-        dataDiff[i] = 239; // R
-        dataDiff[i + 1] = 68; // G
-        dataDiff[i + 2] = 68; // B
-        dataDiff[i + 3] = 255; // Alpha
+        dataDiff[i] = 239;
+        dataDiff[i + 1] = 68;
+        dataDiff[i + 2] = 68;
+        dataDiff[i + 3] = 255;
       } else {
-        // Muted grayscale for matching areas
         const gray = Math.round(0.299 * rA + 0.587 * gA + 0.114 * bA);
         dataDiff[i] = gray;
         dataDiff[i + 1] = gray;
@@ -147,7 +270,6 @@ export const ComparePage: React.FC = () => {
 
   useEffect(() => {
     if (viewMode === 'diff') {
-      // Small timeout to allow canvas rendering to settle
       const t = setTimeout(() => {
         computeVisualDiff();
       }, 200);
@@ -162,10 +284,10 @@ export const ComparePage: React.FC = () => {
           <Columns2 className="w-7 h-7" />
         </div>
         <h1 className="text-3xl font-extrabold text-white mb-2">
-          Compare <span className="text-brand-gold">Two PDFs</span>
+          Side-by-Side <span className="text-brand-gold">PDF Diff Checker</span>
         </h1>
-        <p className="text-xs sm:text-sm text-zinc-400 max-w-md mx-auto">
-          Synchronized side-by-side inspection and automated visual pixel-difference heatmap analysis.
+        <p className="text-xs sm:text-sm text-zinc-400 max-w-lg mx-auto">
+          Compare contracts, legal clauses, and revised drafts with side-by-side visual rendering, line/word text diff, and pixel heatmap.
         </p>
       </div>
 
@@ -184,6 +306,18 @@ export const ComparePage: React.FC = () => {
             <span>Side-by-Side</span>
           </button>
           <button
+            onClick={() => setViewMode('text')}
+            disabled={!docABytes || !docBBytes}
+            className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition disabled:opacity-30 ${
+              viewMode === 'text'
+                ? 'bg-brand-gold text-black shadow-gold-glow/30'
+                : 'bg-zinc-900 border border-white/10 text-zinc-400 hover:text-white'
+            }`}
+          >
+            <FileText className="w-3.5 h-3.5" />
+            <span>Text & Clause Diff</span>
+          </button>
+          <button
             onClick={() => setViewMode('diff')}
             disabled={!docABytes || !docBBytes}
             className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition disabled:opacity-30 ${
@@ -193,7 +327,7 @@ export const ComparePage: React.FC = () => {
             }`}
           >
             <Flame className="w-3.5 h-3.5" />
-            <span>Visual Difference Heatmap</span>
+            <span>Visual Heatmap</span>
           </button>
         </div>
 
@@ -209,7 +343,7 @@ export const ComparePage: React.FC = () => {
         </label>
       </div>
 
-      {/* Metrics Banner if in Diff Mode */}
+      {/* Metrics Banner if in Visual Diff Mode */}
       {viewMode === 'diff' && diffStats && (
         <div className="mb-6 p-4 rounded-2xl bg-amber-500/10 border border-brand-gold/30 flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -236,8 +370,111 @@ export const ComparePage: React.FC = () => {
         </div>
       )}
 
-      {/* Visual Diff View Container */}
-      {viewMode === 'diff' ? (
+      {/* Metrics Banner if in Text Diff Mode */}
+      {viewMode === 'text' && (
+        <div className="mb-6 p-4 rounded-2xl bg-[#121218] border border-white/10 flex flex-wrap items-center justify-between gap-4">
+          <div className="flex items-center gap-4 text-xs font-semibold">
+            <span className="flex items-center gap-1.5 text-emerald-400 bg-emerald-950/40 px-3 py-1.5 rounded-lg border border-emerald-800/40">
+              <PlusCircle className="w-4 h-4" />
+              <span>+{textStats.added} Words Added</span>
+            </span>
+            <span className="flex items-center gap-1.5 text-rose-400 bg-rose-950/40 px-3 py-1.5 rounded-lg border border-rose-800/40">
+              <MinusCircle className="w-4 h-4" />
+              <span>-{textStats.removed} Words Deleted</span>
+            </span>
+            <span className="text-zinc-400">
+              Comparing Page {pageA} vs Page {pageB}
+            </span>
+          </div>
+          <div className="flex items-center gap-2 text-xs">
+            <button
+              onClick={() => handlePageChange(Math.max(1, pageA - 1))}
+              disabled={pageA <= 1}
+              className="px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 disabled:opacity-30"
+            >
+              Prev Page
+            </button>
+            <span className="text-zinc-300 font-mono">
+              {pageA} / {Math.max(countA, countB)}
+            </span>
+            <button
+              onClick={() => handlePageChange(Math.min(Math.max(countA, countB), pageA + 1))}
+              disabled={pageA >= Math.max(countA, countB)}
+              className="px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 disabled:opacity-30"
+            >
+              Next Page
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* View Containers */}
+      {viewMode === 'text' ? (
+        /* Text Diff View */
+        <div className="bg-[#121218] border border-white/10 rounded-2xl p-6 shadow-xl space-y-6">
+          {isLoadingText ? (
+            <div className="py-16 text-center text-zinc-400 flex flex-col items-center gap-3">
+              <RefreshCw className="w-7 h-7 animate-spin text-brand-gold" />
+              <p className="text-sm">Extracting and computing clause differences...</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              {/* Document A Text */}
+              <div className="p-4 rounded-xl bg-[#09090C] border border-white/5 space-y-3">
+                <div className="flex items-center justify-between pb-2 border-b border-white/10">
+                  <span className="text-xs font-bold uppercase text-brand-gold">Document A (Original)</span>
+                  <span className="text-xs text-zinc-500 font-mono">Page {pageA}</span>
+                </div>
+                <div className="font-mono text-xs leading-relaxed whitespace-pre-wrap max-h-[500px] overflow-y-auto text-zinc-300 p-2">
+                  {textA ? (
+                    textA
+                  ) : (
+                    <span className="text-zinc-600 italic">No text extracted on this page.</span>
+                  )}
+                </div>
+              </div>
+
+              {/* Document B Text with Inline Additions/Deletions */}
+              <div className="p-4 rounded-xl bg-[#09090C] border border-white/5 space-y-3">
+                <div className="flex items-center justify-between pb-2 border-b border-white/10">
+                  <span className="text-xs font-bold uppercase text-emerald-400">Document B (Revision & Diff)</span>
+                  <span className="text-xs text-zinc-500 font-mono">Page {pageB}</span>
+                </div>
+                <div className="font-mono text-xs leading-relaxed max-h-[500px] overflow-y-auto p-2">
+                  {textDiffs.length > 0 ? (
+                    textDiffs.map((d, idx) => {
+                      if (d.type === 'added') {
+                        return (
+                          <span
+                            key={idx}
+                            className="bg-emerald-500/20 text-emerald-300 px-1 py-0.5 rounded font-bold border border-emerald-500/30"
+                          >
+                            {d.text}
+                          </span>
+                        );
+                      }
+                      if (d.type === 'removed') {
+                        return (
+                          <span
+                            key={idx}
+                            className="bg-rose-500/20 text-rose-300 px-1 py-0.5 rounded line-through border border-rose-500/30 opacity-80"
+                          >
+                            {d.text}
+                          </span>
+                        );
+                      }
+                      return <span key={idx} className="text-zinc-300">{d.text}</span>;
+                    })
+                  ) : (
+                    <span className="text-zinc-600 italic">No differences detected or page is blank.</span>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      ) : viewMode === 'diff' ? (
+        /* Visual Heatmap View */
         <div className="bg-[#121218] border border-white/10 rounded-2xl p-6 shadow-xl flex flex-col items-center">
           <div className="flex items-center gap-4 mb-6 text-xs text-zinc-300">
             <button
@@ -275,6 +512,7 @@ export const ComparePage: React.FC = () => {
               <FileUploader
                 title="Upload First PDF (Doc A)"
                 subtitle="Choose baseline version"
+                accept=".pdf,application/pdf"
                 onFilesSelected={handleUploadA}
               />
             ) : (
@@ -322,6 +560,7 @@ export const ComparePage: React.FC = () => {
               <FileUploader
                 title="Upload Second PDF (Doc B)"
                 subtitle="Choose revised version"
+                accept=".pdf,application/pdf"
                 onFilesSelected={handleUploadB}
               />
             ) : (
@@ -362,4 +601,3 @@ export const ComparePage: React.FC = () => {
     </div>
   );
 };
-

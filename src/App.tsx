@@ -53,6 +53,10 @@ import { StampQrOverlayPage } from './pages/tools/StampQrOverlayPage';
 import { BookletFormatterPage } from './pages/tools/BookletFormatterPage';
 import { GovtFormResizerPage } from './pages/tools/GovtFormResizerPage';
 import { CarouselMakerPage } from './pages/tools/CarouselMakerPage';
+import { BookmarkGeneratorPage } from './pages/tools/BookmarkGeneratorPage';
+import { FormFillerPage } from './pages/tools/FormFillerPage';
+import { InkSaverPage } from './pages/tools/InkSaverPage';
+import { BatchRenamerPage } from './pages/tools/BatchRenamerPage';
 
 // Scroll to top on route change
 function ScrollToTop() {
@@ -141,6 +145,17 @@ export const App: React.FC = () => {
             <Route path="/govt-form-resizer" element={<GovtFormResizerPage />} />
             <Route path="/tools/carousel-maker" element={<CarouselMakerPage />} />
             <Route path="/carousel-maker" element={<CarouselMakerPage />} />
+            {/* Next-Level Utility Modules */}
+            <Route path="/tools/pdf-compare" element={<ComparePage />} />
+            <Route path="/pdf-compare" element={<ComparePage />} />
+            <Route path="/tools/bookmark-generator" element={<BookmarkGeneratorPage />} />
+            <Route path="/bookmark-generator" element={<BookmarkGeneratorPage />} />
+            <Route path="/tools/form-filler" element={<FormFillerPage />} />
+            <Route path="/form-filler" element={<FormFillerPage />} />
+            <Route path="/tools/ink-saver" element={<InkSaverPage />} />
+            <Route path="/ink-saver" element={<InkSaverPage />} />
+            <Route path="/tools/batch-renamer" element={<BatchRenamerPage />} />
+            <Route path="/batch-renamer" element={<BatchRenamerPage />} />
             {/* Fallback route */}
             <Route path="*" element={<Home />} />
           </Routes>

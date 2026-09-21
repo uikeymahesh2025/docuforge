@@ -51,6 +51,10 @@ import {
   QrCode,
   BookOpen,
   Share2,
+  Bookmark,
+  Droplet,
+  FolderArchive,
+  CheckSquare,
 } from 'lucide-react';
 import { ToolItem, ToolCategory } from '../../types';
 import { TOOLS, CATEGORY_LABELS } from '../../utils/toolsCatalog';
@@ -105,6 +109,10 @@ export const ICON_MAP: Record<string, React.ElementType> = {
   QrCode,
   BookOpen,
   Share2,
+  Bookmark,
+  Droplet,
+  FolderArchive,
+  CheckSquare,
 };
 
 interface MegaMenuProps {
