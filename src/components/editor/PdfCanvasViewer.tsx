@@ -656,10 +656,10 @@ export const PdfCanvasViewer: React.FC<PdfCanvasViewerProps> = ({ onSelectAnnota
           text: defaultText,
           x: coords.x,
           y: coords.y,
-          width: defaultText.length * 10,
+          width: Math.max(defaultText.length * 12, 60),
           height: fontSize * 1.3,
           fontSize,
-          fontFamily: 'Helvetica',
+          fontFamily: "'Noto Sans Devanagari', 'Mangal', 'Nirmala UI', sans-serif",
           fontWeight: 'normal',
           fontStyle: 'normal',
           textAlign: 'left',
@@ -938,6 +938,11 @@ export const PdfCanvasViewer: React.FC<PdfCanvasViewerProps> = ({ onSelectAnnota
           .filter((e) => e.pageNumber === currentPage)
           .map((edit) => {
             const isToolActive = activeTool === 'direct-text';
+            const approxCharWidth = (edit.fontSize || 12) * 0.65;
+            const dynamicTextWidth = Math.max(
+              edit.width,
+              (edit.newText || '').length * approxCharWidth
+            );
             return (
               <React.Fragment key={edit.id}>
                 {/* Background Mask to hide original text (calibrated to cleanly cover Devanagari Shirorekha & matras) */}
@@ -946,7 +951,7 @@ export const PdfCanvasViewer: React.FC<PdfCanvasViewerProps> = ({ onSelectAnnota
                     position: 'absolute',
                     left: `${edit.x * scale - 1.5}px`,
                     top: `${edit.y * scale - 2.5}px`,
-                    width: `${edit.width * scale + 3}px`,
+                    width: `${Math.max(edit.width + 3, dynamicTextWidth + 4) * scale}px`,
                     height: `${edit.height * scale + 5}px`,
                     backgroundColor: edit.backgroundColor || '#ffffff',
                     zIndex: 15,
@@ -999,7 +1004,8 @@ export const PdfCanvasViewer: React.FC<PdfCanvasViewerProps> = ({ onSelectAnnota
                     position: 'absolute',
                     left: `${edit.x * scale}px`,
                     top: `${edit.y * scale}px`,
-                    width: `${edit.width * scale}px`,
+                    minWidth: `${edit.width * scale}px`,
+                    width: 'max-content',
                     minHeight: `${edit.height * scale}px`,
                     fontSize: `${edit.fontSize * scale}px`,
                     color: edit.color,
@@ -1008,8 +1014,9 @@ export const PdfCanvasViewer: React.FC<PdfCanvasViewerProps> = ({ onSelectAnnota
                       "'Noto Sans Devanagari', 'Mangal', 'Nirmala UI', Helvetica, Arial, sans-serif",
                     zIndex: 16,
                     lineHeight: 1.25,
-                    whiteSpace: 'pre-wrap',
-                    overflowWrap: 'break-word',
+                    whiteSpace: 'pre',
+                    letterSpacing: 'normal',
+                    wordSpacing: 'normal',
                   }}
                   className={`select-none ${
                     isToolActive
@@ -1306,6 +1313,10 @@ export const PdfCanvasViewer: React.FC<PdfCanvasViewerProps> = ({ onSelectAnnota
                     opacity: t.opacity,
                     fontWeight: t.fontWeight,
                     fontStyle: t.fontStyle,
+                    fontFamily:
+                      t.fontFamily ||
+                      "'Noto Sans Devanagari', 'Mangal', 'Nirmala UI', sans-serif",
+                    whiteSpace: 'pre-wrap',
                   }}
                   className={`absolute select-none p-1 rounded transition-shadow z-30 ${
                     isDraggingThis
@@ -1659,6 +1670,11 @@ export const PdfCanvasViewer: React.FC<PdfCanvasViewerProps> = ({ onSelectAnnota
                   type="button"
                   onClick={() => {
                     const sanitized = (editingModal.newText || '').normalize('NFC');
+                    const approxCharWidth = (editingModal.fontSize || 12) * 0.65;
+                    const calculatedWidth = Math.max(
+                      editingModal.width,
+                      sanitized.length * approxCharWidth
+                    );
                     addDirectTextEdit({
                       id: editingModal.id,
                       pageNumber: currentPage,
@@ -1666,7 +1682,7 @@ export const PdfCanvasViewer: React.FC<PdfCanvasViewerProps> = ({ onSelectAnnota
                       newText: sanitized,
                       x: editingModal.x,
                       y: editingModal.y,
-                      width: editingModal.width,
+                      width: calculatedWidth,
                       height: editingModal.height,
                       fontSize: editingModal.fontSize,
                       fontFamily: "'Noto Sans Devanagari', 'Mangal', 'Nirmala UI', Helvetica, Arial, sans-serif",

@@ -976,6 +976,16 @@ async function renderUnicodeTextToPdfImage(
   const fontFamily =
     edit.fontFamily || "'Noto Sans Devanagari', 'Mangal', 'Nirmala UI', sans-serif";
 
+  // Ensure Noto Sans Devanagari font is ready before measuring or drawing
+  if ((document as any).fonts) {
+    try {
+      await (document as any).fonts.load(`${fontSize * 4}px "Noto Sans Devanagari"`);
+      await (document as any).fonts.ready;
+    } catch {
+      // ignore
+    }
+  }
+
   // 4x scale for crisp 300+ DPI print-quality text
   const scaleFactor = 4;
   const canvas = document.createElement('canvas');
@@ -995,15 +1005,18 @@ async function renderUnicodeTextToPdfImage(
   const textWidth = Math.max(maxLineWidth / scaleFactor, edit.width || 20);
   const textHeight = Math.max(lines.length * lineHeight, edit.height || fontSize);
 
-  canvas.width = Math.ceil(textWidth * scaleFactor) + 16 * scaleFactor;
-  canvas.height = Math.ceil(textHeight * scaleFactor) + 8 * scaleFactor;
+  const padX = 4 * scaleFactor;
+  const padY = 4 * scaleFactor;
+
+  canvas.width = Math.ceil(textWidth * scaleFactor) + padX * 2;
+  canvas.height = Math.ceil(textHeight * scaleFactor) + padY * 2;
 
   ctx.font = `${fontSize * scaleFactor}px ${fontFamily}`;
   ctx.fillStyle = color;
   ctx.textBaseline = 'top';
 
   for (let i = 0; i < lines.length; i++) {
-    ctx.fillText(lines[i], 0, i * lineHeight * scaleFactor);
+    ctx.fillText(lines[i], padX, padY + i * lineHeight * scaleFactor);
   }
 
   const pngDataUrl = canvas.toDataURL('image/png');
@@ -1011,13 +1024,84 @@ async function renderUnicodeTextToPdfImage(
 
   const pdfImgWidth = canvas.width / scaleFactor;
   const pdfImgHeight = canvas.height / scaleFactor;
-  const imgY = pageH - edit.y - pdfImgHeight;
+  const imgY = pageH - edit.y - pdfImgHeight + (padY / scaleFactor);
 
   page.drawImage(pngImage, {
-    x: edit.x,
+    x: edit.x - (padX / scaleFactor),
     y: imgY,
     width: pdfImgWidth,
     height: pdfImgHeight,
+  });
+}
+
+async function renderUnicodeAnnotationToPdfImage(
+  doc: PDFDocument,
+  page: any,
+  textAnn: any,
+  pageH: number
+): Promise<void> {
+  if (typeof document === 'undefined') return;
+
+  const text = (textAnn.text || '').normalize('NFC');
+  const fontSize = textAnn.fontSize || 16;
+  const color = textAnn.color || '#000000';
+  const fontFamily =
+    textAnn.fontFamily || "'Noto Sans Devanagari', 'Mangal', 'Nirmala UI', sans-serif";
+
+  if ((document as any).fonts) {
+    try {
+      await (document as any).fonts.load(`${fontSize * 4}px "Noto Sans Devanagari"`);
+      await (document as any).fonts.ready;
+    } catch {
+      // ignore
+    }
+  }
+
+  const scaleFactor = 4;
+  const canvas = document.createElement('canvas');
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return;
+
+  const lines = text.split('\n');
+  const lineHeight = fontSize * 1.25;
+
+  ctx.font = `${textAnn.fontWeight === 'bold' ? 'bold ' : ''}${fontSize * scaleFactor}px ${fontFamily}`;
+  let maxLineWidth = 0;
+  for (const line of lines) {
+    const w = ctx.measureText(line).width;
+    if (w > maxLineWidth) maxLineWidth = w;
+  }
+
+  const textWidth = Math.max(maxLineWidth / scaleFactor, 20);
+  const textHeight = Math.max(lines.length * lineHeight, fontSize);
+
+  const padX = 4 * scaleFactor;
+  const padY = 4 * scaleFactor;
+
+  canvas.width = Math.ceil(textWidth * scaleFactor) + padX * 2;
+  canvas.height = Math.ceil(textHeight * scaleFactor) + padY * 2;
+
+  ctx.font = `${textAnn.fontWeight === 'bold' ? 'bold ' : ''}${fontSize * scaleFactor}px ${fontFamily}`;
+  ctx.fillStyle = color;
+  ctx.textBaseline = 'top';
+
+  for (let i = 0; i < lines.length; i++) {
+    ctx.fillText(lines[i], padX, padY + i * lineHeight * scaleFactor);
+  }
+
+  const pngDataUrl = canvas.toDataURL('image/png');
+  const pngImage = await doc.embedPng(pngDataUrl);
+
+  const pdfImgWidth = canvas.width / scaleFactor;
+  const pdfImgHeight = canvas.height / scaleFactor;
+  const imgY = pageH - textAnn.y - pdfImgHeight + (padY / scaleFactor);
+
+  page.drawImage(pngImage, {
+    x: textAnn.x - (padX / scaleFactor),
+    y: imgY,
+    width: pdfImgWidth,
+    height: pdfImgHeight,
+    opacity: textAnn.opacity ?? 1,
   });
 }
 
@@ -1093,11 +1177,16 @@ export async function bakeAnnotationsOnPdf(
       // Calibrate whiteout mask: expand vertically so Hindi top Shirorekha and bottom matras are cleanly covered
       const maskY = pageH - edit.y - edit.height - 2.5;
 
+      const approxW = Math.max(
+        edit.width + 3,
+        (edit.newText?.length || 0) * (edit.fontSize || 12) * 0.65 + 6
+      );
+
       // Draw background mask rectangle precisely covering original text
       page.drawRectangle({
         x: edit.x - 1.5,
         y: maskY,
-        width: Math.max(edit.width + 3, 8),
+        width: Math.max(approxW, 8),
         height: edit.height + 5,
         color: rgb(bgRgb.r, bgRgb.g, bgRgb.b),
         opacity: 1,
@@ -1177,14 +1266,22 @@ export async function bakeAnnotationsOnPdf(
           });
         }
 
-        page.drawText(textAnn.text || '', {
-          x: ann.x,
-          y: pdfY,
-          size: textAnn.fontSize || 16,
-          font,
-          color: rgb(c.r, c.g, c.b),
-          opacity: ann.opacity,
-        });
+        if (!isWinAnsiSafe(textAnn.text || '')) {
+          try {
+            await renderUnicodeAnnotationToPdfImage(doc, page, textAnn, pageH);
+          } catch (rErr) {
+            console.warn('Failed rendering Unicode text annotation via canvas fallback:', rErr);
+          }
+        } else {
+          page.drawText(textAnn.text || '', {
+            x: ann.x,
+            y: pdfY,
+            size: textAnn.fontSize || 16,
+            font,
+            color: rgb(c.r, c.g, c.b),
+            opacity: ann.opacity,
+          });
+        }
       } else if (ann.type === 'rect') {
         const shape = ann as any;
         const borderRgb = hexToRgb(shape.strokeColor || shape.color || '#D4AF37');

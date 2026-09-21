@@ -358,19 +358,17 @@ export function normalizeDevanagariText(raw: string): string {
     // fallback
   }
 
-  // 2. Swap visual chhoti 'i' matra (\u093F) that precedes consonant or conjunct cluster
-  // Devanagari consonants: \u0915-\u0939, \u0958-\u095F
-  // Halant: \u094D
-  // E.g.: \u093F\u0915 -> \u0915\u093F ("कि"), \u093F\u0938\u094D\u0925 -> \u0938\u094D\u0925\u093F ("स्थि")
+  // 2. Only swap visual chhoti 'i' matra (\u093F) IF it is orphaned at word start or preceded by non-Devanagari
+  // (In proper Unicode, \u093F ALWAYS follows its consonant in memory, e.g. \u0915\u093F = "कि". Never swap when already following a consonant!)
   text = text.replace(
-    /\u093F((?:[\u0915-\u0939\u0958-\u095F]\u094D)*[\u0915-\u0939\u0958-\u095F])/g,
-    '$1\u093F'
+    /(^|[^\u0900-\u097F])\u093F((?:[\u0915-\u0939\u0958-\u095F]\u094D)*[\u0915-\u0939\u0958-\u095F])/g,
+    '$1$2\u093F'
   );
 
-  // 3. Anusvara/Chandrabindu placed before/after \u093F
+  // 3. Anusvara/Chandrabindu placed before orphan \u093F
   text = text.replace(
-    /\u093F([\u0901\u0902])((?:[\u0915-\u0939\u0958-\u095F]\u094D)*[\u0915-\u0939\u0958-\u095F])/g,
-    '$2\u093F$1'
+    /(^|[^\u0900-\u097F])\u093F([\u0901\u0902])((?:[\u0915-\u0939\u0958-\u095F]\u094D)*[\u0915-\u0939\u0958-\u095F])/g,
+    '$1$3\u093F$2'
   );
 
   // 4. Re-associate isolated Nuktas (\u093C) with preceding consonants
@@ -421,7 +419,7 @@ export function clusterPageTextItems(
 
       if (measureCtx) {
         try {
-          measureCtx.font = `${item.fontSize}px ${item.fontName || 'Helvetica, Arial, sans-serif'}`;
+          measureCtx.font = `${item.fontSize}px 'Noto Sans Devanagari', 'Mangal', 'Nirmala UI', sans-serif`;
         } catch {
           // ignore
         }
@@ -546,17 +544,19 @@ export function clusterPageTextItems(
       const prev = currentWord[currentWord.length - 1];
       const gap = span.x - (prev.x + prev.width);
 
-      // Explicit word breaks take absolute precedence (unless it's a Devanagari combining mark or halant)
+      // Explicit word breaks take absolute precedence (unless it's a Devanagari combining mark)
       const isDevanagariCombining = /^[\u0900-\u0903\u093A-\u094F\u0951-\u0957\u0962\u0963]/.test(span.str);
       const prevEndsWithHalant = /[\u094D]$/.test(prev.str);
-      const isMatraOrConjunct = isDevanagariCombining || prevEndsWithHalant;
+      // Halant only binds a conjunct if there is no explicit space break and distance is sub-pixel (< 1.0px)
+      const isMatraOrConjunct =
+        isDevanagariCombining ||
+        (prevEndsWithHalant && !prev.wordBreakAfter && !span.wordBreakBefore && gap < 1.0);
 
-      const hasExplicitBreak = !isMatraOrConjunct && Boolean(prev.wordBreakAfter || span.wordBreakBefore);
+      const hasExplicitBreak = !isDevanagariCombining && Boolean(prev.wordBreakAfter || span.wordBreakBefore);
 
-      // In typography, a space character (' ') is ~0.22 - 0.35 * fontSize (typically 2.5px - 4.5px).
-      // Intra-word character/glyph spacing (kerning) is tight: <= 0.12 * fontSize or <= 1.5px.
-      // Devanagari matras / ligatures can have negative gaps (-4px to 0px).
-      const isSpaceGap = gap >= Math.max(prev.fontSize * 0.16, 1.8);
+      // In typography, inter-word space gap is >= 1.4px (or >= 0.14 * fontSize).
+      // Intra-word kerning is tight (<= 1.0px).
+      const isSpaceGap = gap >= Math.max(prev.fontSize * 0.14, 1.4);
       const isBackwardsOverlap = gap < -Math.max(prev.fontSize * 0.45, 6);
 
       const isSameWord = isMatraOrConjunct || (!hasExplicitBreak && !isSpaceGap && !isBackwardsOverlap);
@@ -812,7 +812,7 @@ export async function getPageTextItemsWithCoords(
     const viewPoint = viewport.convertToViewportPoint(pdfX, pdfY);
     const screenX = Math.round(viewPoint[0]);
     const screenY = Math.round(viewPoint[1] - fontSize * 0.9);
-    const itemWidth = Math.max(item.width, item.str.length * (fontSize * 0.5));
+    const itemWidth = item.width > 0 ? item.width : Math.max(item.str.length * (fontSize * 0.3), 4);
     const itemHeight = Math.max(item.height, fontSize * 1.15);
 
     const hasLeadingSpace = /^\s/.test(item.str);
