@@ -970,7 +970,7 @@ async function renderUnicodeTextToPdfImage(
 ): Promise<void> {
   if (typeof document === 'undefined') return;
 
-  const text = edit.newText;
+  const text = (edit.newText || '').normalize('NFC');
   const fontSize = edit.fontSize || 12;
   const color = edit.color || '#000000';
   const fontFamily =
@@ -1090,14 +1090,15 @@ export async function bakeAnnotationsOnPdf(
     const pageEdits = directTextMap.get(pageNum) || [];
     for (const edit of pageEdits) {
       const bgRgb = hexToRgb(edit.backgroundColor || '#ffffff');
-      const maskY = pageH - edit.y - edit.height;
+      // Calibrate whiteout mask: expand vertically so Hindi top Shirorekha and bottom matras are cleanly covered
+      const maskY = pageH - edit.y - edit.height - 2.5;
 
       // Draw background mask rectangle precisely covering original text
       page.drawRectangle({
-        x: edit.x - 1,
-        y: maskY - 1,
-        width: Math.max(edit.width + 2, 8),
-        height: edit.height + 2,
+        x: edit.x - 1.5,
+        y: maskY,
+        width: Math.max(edit.width + 3, 8),
+        height: edit.height + 5,
         color: rgb(bgRgb.r, bgRgb.g, bgRgb.b),
         opacity: 1,
       });

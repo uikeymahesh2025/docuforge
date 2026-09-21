@@ -1,0 +1,19 @@
+{
+  "short_name": "DocuForge",
+  "name": "DocuForge PDF Editor & Studio Suite",
+  "description": "100% Client-side private PDF editor, converter, wedding studio proofing, and document tools.",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "type": "image/svg+xml",
+      "sizes": "512x512",
+      "purpose": "any maskable"
+    }
+  ],
+  "start_url": "/",
+  "background_color": "#09090C",
+  "theme_color": "#09090C",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "categories": ["productivity", "utilities", "business", "photography"]
+}

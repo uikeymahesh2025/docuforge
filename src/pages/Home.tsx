@@ -25,9 +25,27 @@ import { FileUploader } from '../components/tools/FileUploader';
 import { useEditorStore } from '../stores/useEditorStore';
 import { loadPdfDocument } from '../pdf/pdfManager';
 import { useToastStore } from '../stores/useToastStore';
+import { ROLES, RoleCategory } from '../config/rolesConfig';
 
 export const Home: React.FC = () => {
   const [activeCategory, setActiveCategory] = useState<string>('all');
+  const [selectedRole, setSelectedRole] = useState<string>(() => {
+    try {
+      return localStorage.getItem('uikey_active_role') || 'all';
+    } catch {
+      return 'all';
+    }
+  });
+
+  const handleRoleChange = (roleId: string) => {
+    setSelectedRole(roleId);
+    try {
+      localStorage.setItem('uikey_active_role', roleId);
+    } catch (e) {
+      console.warn('Could not save role to localStorage', e);
+    }
+  };
+
   const navigate = useNavigate();
   const setPdf = useEditorStore((state) => state.setPdf);
   const addToast = useToastStore((state) => state.addToast);
@@ -66,10 +84,18 @@ export const Home: React.FC = () => {
     { id: 'security', label: 'Security' },
   ];
 
+  const currentRoleObj = ROLES.find((r) => r.id === selectedRole) || ROLES[0];
+
+  // Filter first by role, then by category
+  const roleFilteredTools =
+    selectedRole === 'all'
+      ? TOOLS
+      : TOOLS.filter((t) => currentRoleObj.toolIds.includes(t.id));
+
   const filteredTools =
     activeCategory === 'all'
-      ? TOOLS
-      : TOOLS.filter((t) => t.category === activeCategory);
+      ? roleFilteredTools
+      : roleFilteredTools.filter((t) => t.category === activeCategory);
 
   return (
     <div className="min-h-screen bg-[#09090C] text-zinc-100 flex flex-col">
@@ -158,14 +184,90 @@ export const Home: React.FC = () => {
       </section>
 
       {/* Main Tool Catalog Section */}
-      <section id="tools" className="py-16 sm:py-24 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex-1">
-        <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 mb-10">
+      <section id="tools" className="py-14 sm:py-20 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex-1">
+        {/* Stage 2: Multi-Profession Workspace Role Pills */}
+        <div className="mb-10">
+          <div className="flex items-center justify-between gap-4 mb-3">
+            <div className="flex items-center gap-2">
+              <Sparkles className="w-4 h-4 text-brand-gold" />
+              <span className="text-xs uppercase font-bold tracking-wider text-amber-400">
+                Workspace by Profession
+              </span>
+            </div>
+            {selectedRole !== 'all' && (
+              <button
+                onClick={() => handleRoleChange('all')}
+                className="text-xs text-zinc-400 hover:text-amber-400 underline transition"
+              >
+                Reset to All Tools
+              </button>
+            )}
+          </div>
+
+          <div className="flex items-center gap-2 overflow-x-auto pb-3 pt-1 no-scrollbar">
+            {ROLES.map((role) => {
+              const isSelected = selectedRole === role.id;
+              return (
+                <button
+                  key={role.id}
+                  onClick={() => handleRoleChange(role.id)}
+                  className={`group flex items-center gap-2 px-4 py-2.5 rounded-2xl text-xs font-semibold whitespace-nowrap transition-all duration-200 shrink-0 border ${
+                    isSelected
+                      ? 'bg-gradient-to-r from-amber-400 to-amber-500 text-black border-amber-400 shadow-gold-glow scale-[1.02]'
+                      : 'bg-zinc-900/90 text-zinc-300 border-white/10 hover:border-amber-400/40 hover:text-white hover:bg-zinc-800/80'
+                  }`}
+                >
+                  <span className="text-sm">{role.emoji}</span>
+                  <span>{role.name}</span>
+                  {role.badge && (
+                    <span
+                      className={`text-[9px] px-1.5 py-0.5 rounded-md font-bold uppercase tracking-wider ${
+                        isSelected
+                          ? 'bg-black/20 text-black'
+                          : 'bg-amber-400/10 text-amber-400 border border-amber-400/20'
+                      }`}
+                    >
+                      {role.badge}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+
+          {selectedRole !== 'all' && (
+            <div className="mt-3 p-3.5 rounded-2xl bg-amber-500/5 border border-amber-500/20 flex items-center justify-between gap-3 text-xs">
+              <div className="flex items-center gap-2.5">
+                <span className="text-base">{currentRoleObj.emoji}</span>
+                <span className="text-zinc-300">
+                  <strong className="text-amber-400 font-semibold">{currentRoleObj.name}:</strong>{' '}
+                  {currentRoleObj.description}
+                </span>
+              </div>
+              <span className="text-amber-400 font-bold shrink-0 bg-amber-400/10 px-2.5 py-1 rounded-lg border border-amber-400/20">
+                {filteredTools.length} Tools
+              </span>
+            </div>
+          )}
+        </div>
+
+        <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 mb-8">
           <div>
             <h2 className="text-2xl sm:text-3xl font-bold text-white tracking-tight mb-2">
-              Comprehensive <span className="text-brand-gold">PDF Suite</span>
+              {selectedRole === 'all' ? (
+                <>
+                  Comprehensive <span className="text-brand-gold">PDF Suite</span>
+                </>
+              ) : (
+                <>
+                  {currentRoleObj.name} <span className="text-brand-gold">Toolkit</span>
+                </>
+              )}
             </h2>
             <p className="text-xs sm:text-sm text-zinc-400">
-              Every tool is fully functional, browser-powered, and free of subscriptions.
+              {selectedRole === 'all'
+                ? 'Every tool is fully functional, browser-powered, and free of subscriptions.'
+                : `Hand-picked professional suite tailored for ${currentRoleObj.name}.`}
             </p>
           </div>
 

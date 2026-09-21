@@ -940,14 +940,14 @@ export const PdfCanvasViewer: React.FC<PdfCanvasViewerProps> = ({ onSelectAnnota
             const isToolActive = activeTool === 'direct-text';
             return (
               <React.Fragment key={edit.id}>
-                {/* Background Mask to hide original text */}
+                {/* Background Mask to hide original text (calibrated to cleanly cover Devanagari Shirorekha & matras) */}
                 <div
                   style={{
                     position: 'absolute',
-                    left: `${edit.x * scale - 1}px`,
-                    top: `${edit.y * scale - 1}px`,
-                    width: `${edit.width * scale + 2}px`,
-                    height: `${edit.height * scale + 2}px`,
+                    left: `${edit.x * scale - 1.5}px`,
+                    top: `${edit.y * scale - 2.5}px`,
+                    width: `${edit.width * scale + 3}px`,
+                    height: `${edit.height * scale + 5}px`,
                     backgroundColor: edit.backgroundColor || '#ffffff',
                     zIndex: 15,
                   }}
@@ -1658,11 +1658,12 @@ export const PdfCanvasViewer: React.FC<PdfCanvasViewerProps> = ({ onSelectAnnota
                 <button
                   type="button"
                   onClick={() => {
+                    const sanitized = (editingModal.newText || '').normalize('NFC');
                     addDirectTextEdit({
                       id: editingModal.id,
                       pageNumber: currentPage,
                       originalText: editingModal.originalText,
-                      newText: editingModal.newText,
+                      newText: sanitized,
                       x: editingModal.x,
                       y: editingModal.y,
                       width: editingModal.width,

@@ -351,7 +351,14 @@ export function normalizeDevanagariText(raw: string): string {
   if (!raw) return '';
   let text = raw;
 
-  // 1. Swap visual chhoti 'i' matra (\u093F) that precedes consonant or conjunct cluster
+  // 1. Initial Unicode NFC normalization
+  try {
+    text = text.normalize('NFC');
+  } catch {
+    // fallback
+  }
+
+  // 2. Swap visual chhoti 'i' matra (\u093F) that precedes consonant or conjunct cluster
   // Devanagari consonants: \u0915-\u0939, \u0958-\u095F
   // Halant: \u094D
   // E.g.: \u093F\u0915 -> \u0915\u093F ("कि"), \u093F\u0938\u094D\u0925 -> \u0938\u094D\u0925\u093F ("स्थि")
@@ -360,13 +367,16 @@ export function normalizeDevanagariText(raw: string): string {
     '$1\u093F'
   );
 
-  // 2. Anusvara/Chandrabindu placed before/after \u093F
+  // 3. Anusvara/Chandrabindu placed before/after \u093F
   text = text.replace(
     /\u093F([\u0901\u0902])((?:[\u0915-\u0939\u0958-\u095F]\u094D)*[\u0915-\u0939\u0958-\u095F])/g,
     '$2\u093F$1'
   );
 
-  // 3. Unicode NFC normalization
+  // 4. Re-associate isolated Nuktas (\u093C) with preceding consonants
+  text = text.replace(/([\u0915-\u0939])\s+(\u093C)/g, '$1$2');
+
+  // 5. Final Unicode NFC normalization
   try {
     text = text.normalize('NFC');
   } catch {
@@ -536,8 +546,12 @@ export function clusterPageTextItems(
       const prev = currentWord[currentWord.length - 1];
       const gap = span.x - (prev.x + prev.width);
 
-      // Explicit word breaks take absolute precedence
-      const hasExplicitBreak = Boolean(prev.wordBreakAfter || span.wordBreakBefore);
+      // Explicit word breaks take absolute precedence (unless it's a Devanagari combining mark or halant)
+      const isDevanagariCombining = /^[\u0900-\u0903\u093A-\u094F\u0951-\u0957\u0962\u0963]/.test(span.str);
+      const prevEndsWithHalant = /[\u094D]$/.test(prev.str);
+      const isMatraOrConjunct = isDevanagariCombining || prevEndsWithHalant;
+
+      const hasExplicitBreak = !isMatraOrConjunct && Boolean(prev.wordBreakAfter || span.wordBreakBefore);
 
       // In typography, a space character (' ') is ~0.22 - 0.35 * fontSize (typically 2.5px - 4.5px).
       // Intra-word character/glyph spacing (kerning) is tight: <= 0.12 * fontSize or <= 1.5px.
@@ -545,7 +559,7 @@ export function clusterPageTextItems(
       const isSpaceGap = gap >= Math.max(prev.fontSize * 0.16, 1.8);
       const isBackwardsOverlap = gap < -Math.max(prev.fontSize * 0.45, 6);
 
-      const isSameWord = !hasExplicitBreak && !isSpaceGap && !isBackwardsOverlap;
+      const isSameWord = isMatraOrConjunct || (!hasExplicitBreak && !isSpaceGap && !isBackwardsOverlap);
 
       if (isSameWord) {
         currentWord.push(span);

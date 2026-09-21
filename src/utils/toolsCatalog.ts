@@ -1,16 +1,53 @@
 import { ToolItem } from '../types';
 
 export const TOOLS: ToolItem[] = [
-  // Organize
+  // Wedding & Event Suite
+  {
+    id: 'wedding-studio',
+    name: 'Wedding Studio Hub',
+    description: 'All-in-one suite for event photographers: Client Proofing, Quotation & Contract Maker, and Guest Badges.',
+    category: 'organize',
+    path: '/wedding-studio',
+    icon: 'Sparkles',
+    badge: 'Studio Hub',
+  },
   {
     id: 'photo-proofing',
     name: 'Photo Proofing & Selection',
     description: 'Interactive client photo selection for wedding & event albums with 5-star ratings, quick rejects & lossless sorted PDF export.',
     category: 'organize',
-    path: '/photo-proofing',
+    path: '/wedding-studio/proofing',
     icon: 'Star',
     badge: 'Wedding & Event Pro',
   },
+  {
+    id: 'wedding-quotation',
+    name: 'Wedding Quotation & Contract',
+    description: 'Create professional photography quotations, packages, auto-tax totals, and integrated dual e-signatures.',
+    category: 'edit',
+    path: '/wedding-studio/quotation',
+    icon: 'Calculator',
+    badge: 'New',
+  },
+  {
+    id: 'guest-cards',
+    name: 'Guest Badges & Tent Cards',
+    description: 'Generate elegant printable table tent cards and VIP guest badges with cut-lines from names/CSV.',
+    category: 'page-tools',
+    path: '/wedding-studio/guest-cards',
+    icon: 'Tag',
+    badge: 'Print Ready',
+  },
+  {
+    id: 'id-card-layout',
+    name: 'ID Card Print Layout',
+    description: 'Arrange Aadhaar, PAN, and Voter ID front & back in 4-in-1 and 8-in-1 print-ready A4 layouts with scissor marks.',
+    category: 'page-tools',
+    path: '/tools/id-card-layout',
+    icon: 'CreditCard',
+    badge: 'Cyber Cafe Pro',
+  },
+  // Organize
   {
     id: 'merge-pdf',
     name: 'Merge PDF',

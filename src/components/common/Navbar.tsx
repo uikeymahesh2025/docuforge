@@ -9,6 +9,7 @@ import {
   X,
   FileEdit,
   Sparkles,
+  ShieldCheck,
 } from 'lucide-react';
 import { MegaMenu } from './MegaMenu';
 import { GlobalSearchModal } from './GlobalSearchModal';
@@ -112,20 +113,30 @@ export const Navbar: React.FC = () => {
               </Link>
 
               <Link
-                to="/add-watermark"
-                className={`px-3 py-1.5 rounded-lg text-sm font-medium transition ${
-                  location.pathname === '/add-watermark'
-                    ? 'text-brand-gold bg-white/5'
-                    : 'text-zinc-300 hover:text-white hover:bg-white/5'
+                to="/wedding-studio"
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition ${
+                  location.pathname.startsWith('/wedding-studio')
+                    ? 'text-amber-400 bg-amber-400/10'
+                    : 'text-zinc-300 hover:text-amber-300 hover:bg-white/5'
                 }`}
               >
-                Watermark
+                <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+                <span>Wedding Studio</span>
               </Link>
             </nav>
           </div>
 
           {/* Right Action Bar */}
           <div className="flex items-center gap-2 sm:gap-3">
+            {/* 100% Client-Side Private Badge */}
+            <div className="hidden xl:flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-[11px] font-medium tracking-wide group relative cursor-help">
+              <ShieldCheck className="w-3.5 h-3.5" />
+              <span>100% Private</span>
+              <div className="absolute top-full left-1/2 -translate-x-1/2 mt-1.5 hidden group-hover:block z-50 w-64 p-2.5 rounded-lg bg-zinc-950/95 border border-white/10 text-[11px] text-zinc-300 shadow-2xl backdrop-blur-md pointer-events-none leading-relaxed text-center">
+                <span className="font-semibold text-emerald-400 block mb-0.5">Zero Server Uploads</span>
+                Your PDFs and photos are processed 100% locally in your browser's private memory.
+              </div>
+            </div>
             {/* Search Button */}
             <button
               onClick={() => setIsSearchOpen(true)}

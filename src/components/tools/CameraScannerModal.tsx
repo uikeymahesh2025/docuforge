@@ -181,12 +181,23 @@ export const CameraScannerModal: React.FC<CameraScannerModalProps> = ({
     await startCamera(nextMode);
   };
 
-  // Toggle torch / flashlight
+  // Toggle torch / flashlight safely without webcam driver lockup
   const handleToggleTorch = async () => {
     if (!streamRef.current) return;
-    const videoTrack = streamRef.current.getVideoTracks()[0];
-    if (!videoTrack) return;
     try {
+      const videoTrack = streamRef.current.getVideoTracks()[0];
+      if (!videoTrack) return;
+      try {
+        if (typeof (videoTrack as any).getCapabilities === 'function') {
+          const caps = (videoTrack as any).getCapabilities();
+          if (caps && !caps.torch) {
+            console.warn('Torch not supported by webcam driver');
+            return;
+          }
+        }
+      } catch (capErr) {
+        console.warn('getCapabilities error suppressed safely:', capErr);
+      }
       const nextState = !torchOn;
       await (videoTrack as any).applyConstraints({
         advanced: [{ torch: nextState }],

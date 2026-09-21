@@ -41,6 +41,13 @@ import { AboutPage } from './pages/AboutPage';
 import { PrivacyPage } from './pages/PrivacyPage';
 import { TermsPage } from './pages/TermsPage';
 
+// Multi-Profession & Wedding Studio Suites
+import { WeddingStudioHubPage } from './pages/wedding/WeddingStudioHubPage';
+import { WeddingProofingPage } from './pages/wedding/WeddingProofingPage';
+import { WeddingQuotationPage } from './pages/wedding/WeddingQuotationPage';
+import { WeddingGuestCardsPage } from './pages/wedding/WeddingGuestCardsPage';
+import { IdCardLayoutPage } from './pages/tools/IdCardLayoutPage';
+
 // Scroll to top on route change
 function ScrollToTop() {
   const { pathname } = useLocation();
@@ -110,7 +117,12 @@ export const App: React.FC = () => {
             <Route path="/extract-images" element={<ExtractImagesPage />} />
             <Route path="/about" element={<AboutPage />} />
             <Route path="/privacy" element={<PrivacyPage />} />
-            <Route path="/terms" element={<TermsPage />} />
+            <Route path="/wedding-studio" element={<WeddingStudioHubPage />} />
+            <Route path="/wedding-studio/proofing" element={<WeddingProofingPage />} />
+            <Route path="/wedding-studio/quotation" element={<WeddingQuotationPage />} />
+            <Route path="/wedding-studio/guest-cards" element={<WeddingGuestCardsPage />} />
+            <Route path="/tools/id-card-layout" element={<IdCardLayoutPage />} />
+            <Route path="/id-card-layout" element={<IdCardLayoutPage />} />
             {/* Fallback route */}
             <Route path="*" element={<Home />} />
           </Routes>
