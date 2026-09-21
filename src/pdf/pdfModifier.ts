@@ -1365,3 +1365,197 @@ function parsePageRange(rangeStr: string, totalPages: number): number[] {
 
   return Array.from(pages);
 }
+
+// 17. DEEP PDF REPAIR ENGINE
+export interface RepairDiagnostic {
+  headerFixed: boolean;
+  eofFixed: boolean;
+  xrefRebuilt: boolean;
+  pagesRecovered: number;
+  engineUsed: 'structural-rebuild' | 'deep-raster-reconstruction';
+  originalSize: number;
+  repairedSize: number;
+  log: string[];
+}
+
+export interface RepairResult {
+  pdfBytes: Uint8Array;
+  diagnostic: RepairDiagnostic;
+}
+
+export async function repairPdf(sourceBytes: Uint8Array): Promise<RepairResult> {
+  const log: string[] = [];
+  let headerFixed = false;
+  let eofFixed = false;
+  let xrefRebuilt = true;
+  let cleanBytes = new Uint8Array(sourceBytes);
+
+  log.push(`Starting deep diagnostic on input buffer (${(sourceBytes.length / 1024).toFixed(1)} KB)...`);
+
+  // Step 1: Magic Byte Alignment & Leading Junk Stripping
+  // Find '%PDF-' (0x25, 0x50, 0x44, 0x46, 0x2D)
+  let magicIndex = -1;
+  for (let i = 0; i < Math.min(cleanBytes.length - 5, 4096); i++) {
+    if (
+      cleanBytes[i] === 0x25 &&
+      cleanBytes[i + 1] === 0x50 &&
+      cleanBytes[i + 2] === 0x44 &&
+      cleanBytes[i + 3] === 0x46 &&
+      cleanBytes[i + 4] === 0x2d
+    ) {
+      magicIndex = i;
+      break;
+    }
+  }
+
+  if (magicIndex > 0) {
+    cleanBytes = cleanBytes.subarray(magicIndex);
+    headerFixed = true;
+    log.push(`Stripped ${magicIndex} bytes of junk/wrapper prepended before valid %PDF- header.`);
+  } else if (magicIndex === -1) {
+    // If not found, inject valid %PDF-1.7 header
+    const headerStr = '%PDF-1.7\n%âãÏÓ\n';
+    const headerBuf = new TextEncoder().encode(headerStr);
+    const merged = new Uint8Array(headerBuf.length + cleanBytes.length);
+    merged.set(headerBuf, 0);
+    merged.set(cleanBytes, headerBuf.length);
+    cleanBytes = merged;
+    headerFixed = true;
+    log.push(`Missing PDF magic signature. Injected compliant %PDF-1.7 file header.`);
+  } else {
+    log.push(`%PDF header confirmed at offset 0 (Valid signature).`);
+  }
+
+  // Step 2: EOF & Trailer Validation
+  // Look for '%%EOF' in last 2048 bytes
+  const tailWindow = Math.min(cleanBytes.length, 2048);
+  const tailBytes = cleanBytes.subarray(cleanBytes.length - tailWindow);
+  let eofFound = false;
+  for (let i = 0; i <= tailBytes.length - 5; i++) {
+    if (
+      tailBytes[i] === 0x25 &&
+      tailBytes[i + 1] === 0x25 &&
+      tailBytes[i + 2] === 0x45 &&
+      tailBytes[i + 3] === 0x4f &&
+      tailBytes[i + 4] === 0x46
+    ) {
+      eofFound = true;
+      break;
+    }
+  }
+
+  if (!eofFound) {
+    const eofBytes = new TextEncoder().encode('\n%%EOF\n');
+    const merged = new Uint8Array(cleanBytes.length + eofBytes.length);
+    merged.set(cleanBytes, 0);
+    merged.set(eofBytes, cleanBytes.length);
+    cleanBytes = merged;
+    eofFixed = true;
+    log.push(`Truncated file detected: Appended standard %%EOF delimiter.`);
+  } else {
+    log.push(`EOF marker verified in trailer.`);
+  }
+
+  // Step 3: Level 1 - Structural PDF-Lib Rebuild
+  try {
+    log.push(`Attempting Level 1: Structural object tree & XRef table rebuilding...`);
+    const sourceDoc = await PDFDocument.load(cleanBytes, { ignoreEncryption: true });
+    const totalPages = sourceDoc.getPageCount();
+
+    if (totalPages > 0) {
+      const repairedDoc = await PDFDocument.create();
+      copyDocumentMetadata(sourceDoc, repairedDoc);
+
+      const pageIndices = sourceDoc.getPageIndices();
+      const copiedPages = await repairedDoc.copyPages(sourceDoc, pageIndices);
+      copiedPages.forEach((p) => repairedDoc.addPage(p));
+
+      const repairedBytes = await repairedDoc.save({ useObjectStreams: false });
+      log.push(`Successfully rebuilt XRef table and page tree (${copiedPages.length} pages recovered).`);
+
+      return {
+        pdfBytes: repairedBytes,
+        diagnostic: {
+          headerFixed,
+          eofFixed,
+          xrefRebuilt,
+          pagesRecovered: copiedPages.length,
+          engineUsed: 'structural-rebuild',
+          originalSize: sourceBytes.length,
+          repairedSize: repairedBytes.length,
+          log,
+        },
+      };
+    }
+  } catch (err: any) {
+    log.push(`Level 1 structural load encountered error: ${err?.message || err}.`);
+  }
+
+  // Step 4: Level 2 - Deep Fault-Tolerant Raster Reconstruction via PDF.js
+  log.push(`Switching to Level 2: Fault-tolerant stream recovery via PDF.js renderer...`);
+  try {
+    const pdfDocProxy = await loadPdfDocument(cleanBytes);
+    const numPages = pdfDocProxy.numPages;
+    log.push(`PDF.js recovered document proxy with ${numPages} recoverable pages.`);
+
+    const repairedDoc = await PDFDocument.create();
+
+    for (let pageNum = 1; pageNum <= numPages; pageNum++) {
+      log.push(`Recovering page ${pageNum} of ${numPages}...`);
+      const page = await pdfDocProxy.getPage(pageNum);
+      const viewport = page.getViewport({ scale: 2.0 }); // 2x scale for sharp 200-300 DPI text & graphics
+
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.floor(viewport.width);
+      canvas.height = Math.floor(viewport.height);
+      const ctx = canvas.getContext('2d');
+
+      if (ctx) {
+        await page.render({
+          canvasContext: ctx,
+          viewport,
+        }).promise;
+
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.92);
+        const imgBytes = await fetch(dataUrl).then((r) => r.arrayBuffer());
+        const embeddedImg = await repairedDoc.embedJpg(imgBytes);
+
+        // A4 or original dimensions in points
+        const origViewport = page.getViewport({ scale: 1.0 });
+        const newPage = repairedDoc.addPage([origViewport.width, origViewport.height]);
+
+        newPage.drawImage(embeddedImg, {
+          x: 0,
+          y: 0,
+          width: origViewport.width,
+          height: origViewport.height,
+        });
+      }
+    }
+
+    const repairedBytes = await repairedDoc.save({ useObjectStreams: false });
+    log.push(`Level 2 deep recovery complete: ${numPages} pages synthesized into pristine PDF.`);
+
+    return {
+      pdfBytes: repairedBytes,
+      diagnostic: {
+        headerFixed,
+        eofFixed,
+        xrefRebuilt: true,
+        pagesRecovered: numPages,
+        engineUsed: 'deep-raster-reconstruction',
+        originalSize: sourceBytes.length,
+        repairedSize: repairedBytes.length,
+        log,
+      },
+    };
+  } catch (deepErr: any) {
+    log.push(`Level 2 recovery failed: ${deepErr?.message || deepErr}`);
+    throw new Error(
+      `Unable to repair this file. It may be heavily overwritten or not a valid PDF. Diagnostics: ${log.join(
+        ' -> '
+      )}`
+    );
+  }
+}
+

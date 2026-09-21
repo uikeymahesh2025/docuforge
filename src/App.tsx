@@ -37,6 +37,7 @@ import { MetadataPage } from './pages/MetadataPage';
 import { ComparePage } from './pages/ComparePage';
 import { BatesPage } from './pages/BatesPage';
 import { ExtractImagesPage } from './pages/ExtractImagesPage';
+import { RepairPage } from './pages/RepairPage';
 import { AboutPage } from './pages/AboutPage';
 import { PrivacyPage } from './pages/PrivacyPage';
 import { TermsPage } from './pages/TermsPage';
@@ -90,6 +91,7 @@ export const App: React.FC = () => {
             <Route path="/split-pdf" element={<SplitPage />} />
             <Route path="/organize-pdf" element={<OrganizePage />} />
             <Route path="/compress-pdf" element={<CompressPage />} />
+            <Route path="/repair-pdf" element={<RepairPage />} />
             <Route path="/add-watermark" element={<WatermarkPage />} />
             <Route path="/remove-watermark" element={<RemoveWatermarkPage />} />
             <Route path="/page-numbers" element={<PageNumbersPage />} />

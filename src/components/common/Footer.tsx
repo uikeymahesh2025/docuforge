@@ -69,6 +69,7 @@ export const Footer: React.FC = () => {
             <li><Link to="/merge-pdf" className="hover:text-brand-gold transition">Merge PDF</Link></li>
             <li><Link to="/split-pdf" className="hover:text-brand-gold transition">Split PDF</Link></li>
             <li><Link to="/compress-pdf" className="hover:text-brand-gold transition">Compress PDF</Link></li>
+            <li><Link to="/repair-pdf" className="hover:text-brand-gold transition">Repair PDF</Link></li>
             <li><Link to="/add-watermark" className="hover:text-brand-gold transition">Watermark PDF</Link></li>
           </ul>
         </div>
