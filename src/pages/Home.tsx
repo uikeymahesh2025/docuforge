@@ -18,6 +18,9 @@ import {
   Binary,
   EyeOff,
   CheckCircle2,
+  ChevronDown,
+  ChevronUp,
+  SlidersHorizontal,
 } from 'lucide-react';
 import { TOOLS, CATEGORY_LABELS } from '../utils/toolsCatalog';
 import { ICON_MAP } from '../components/common/MegaMenu';
@@ -31,11 +34,12 @@ export const Home: React.FC = () => {
   const [activeCategory, setActiveCategory] = useState<string>('all');
   const [selectedRole, setSelectedRole] = useState<string>(() => {
     try {
-      return localStorage.getItem('uikey_active_role') || 'all';
+      return localStorage.getItem('uikey_active_role') || 'student';
     } catch {
-      return 'all';
+      return 'student';
     }
   });
+  const [showOtherTools, setShowOtherTools] = useState<boolean>(false);
 
   const handleRoleChange = (roleId: string) => {
     setSelectedRole(roleId);
@@ -86,16 +90,26 @@ export const Home: React.FC = () => {
 
   const currentRoleObj = ROLES.find((r) => r.id === selectedRole) || ROLES[0];
 
-  // Filter first by role, then by category
-  const roleFilteredTools =
+  // Top 3-4 essential tools for the selected role
+  const featuredTools = currentRoleObj.featuredToolIds
+    .map((id) => TOOLS.find((t) => t.id === id))
+    .filter(Boolean) as typeof TOOLS;
+
+  // Remaining tools for manual catalog / accordion access
+  const otherTools =
     selectedRole === 'all'
       ? TOOLS
-      : TOOLS.filter((t) => currentRoleObj.toolIds.includes(t.id));
+      : TOOLS.filter((t) => !currentRoleObj.featuredToolIds.includes(t.id));
 
-  const filteredTools =
+  const filteredOtherTools =
     activeCategory === 'all'
-      ? roleFilteredTools
-      : roleFilteredTools.filter((t) => t.category === activeCategory);
+      ? otherTools
+      : otherTools.filter((t) => t.category === activeCategory);
+
+  const allFilteredTools =
+    activeCategory === 'all'
+      ? TOOLS
+      : TOOLS.filter((t) => t.category === activeCategory);
 
   return (
     <div className="min-h-screen bg-[#09090C] text-zinc-100 flex flex-col">
@@ -185,13 +199,13 @@ export const Home: React.FC = () => {
 
       {/* Main Tool Catalog Section */}
       <section id="tools" className="py-14 sm:py-20 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex-1">
-        {/* Stage 2: Multi-Profession Workspace Role Pills */}
+        {/* Category Switcher Tabs / Pills */}
         <div className="mb-10">
           <div className="flex items-center justify-between gap-4 mb-3">
             <div className="flex items-center gap-2">
               <Sparkles className="w-4 h-4 text-brand-gold" />
               <span className="text-xs uppercase font-bold tracking-wider text-amber-400">
-                Workspace by Profession
+                Choose Your Workspace
               </span>
             </div>
             {selectedRole !== 'all' && (
@@ -199,18 +213,24 @@ export const Home: React.FC = () => {
                 onClick={() => handleRoleChange('all')}
                 className="text-xs text-zinc-400 hover:text-amber-400 underline transition"
               >
-                Reset to All Tools
+                Browse All 35+ Tools
               </button>
             )}
           </div>
 
+          {/* Clean Role Switcher Tabs */}
           <div className="flex items-center gap-2 overflow-x-auto pb-3 pt-1 no-scrollbar">
             {ROLES.map((role) => {
               const isSelected = selectedRole === role.id;
               return (
                 <button
                   key={role.id}
-                  onClick={() => handleRoleChange(role.id)}
+                  onClick={() => {
+                    handleRoleChange(role.id);
+                    if (role.id !== 'all') {
+                      setShowOtherTools(false);
+                    }
+                  }}
                   className={`group flex items-center gap-2 px-4 py-2.5 rounded-2xl text-xs font-semibold whitespace-nowrap transition-all duration-200 shrink-0 border ${
                     isSelected
                       ? 'bg-gradient-to-r from-amber-400 to-amber-500 text-black border-amber-400 shadow-gold-glow scale-[1.02]'
@@ -235,100 +255,281 @@ export const Home: React.FC = () => {
             })}
           </div>
 
+          {/* Role Header Banner (when specific role is selected) */}
           {selectedRole !== 'all' && (
-            <div className="mt-3 p-3.5 rounded-2xl bg-amber-500/5 border border-amber-500/20 flex items-center justify-between gap-3 text-xs">
-              <div className="flex items-center gap-2.5">
-                <span className="text-base">{currentRoleObj.emoji}</span>
-                <span className="text-zinc-300">
-                  <strong className="text-amber-400 font-semibold">{currentRoleObj.name}:</strong>{' '}
-                  {currentRoleObj.description}
+            <div className="mt-3 p-4 rounded-2xl bg-[#0E0E14] border border-amber-500/20 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs shadow-lg">
+              <div className="flex items-center gap-3">
+                <span className="text-2xl p-2 rounded-xl bg-amber-400/10 border border-amber-400/20">
+                  {currentRoleObj.emoji}
                 </span>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h3 className="font-extrabold text-sm text-white">
+                      {currentRoleObj.name} Workspace
+                    </h3>
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-400/10 text-amber-400 border border-amber-400/20">
+                      {currentRoleObj.badge}
+                    </span>
+                  </div>
+                  <p className="text-zinc-400 text-xs mt-0.5">
+                    {currentRoleObj.description}
+                  </p>
+                </div>
               </div>
-              <span className="text-amber-400 font-bold shrink-0 bg-amber-400/10 px-2.5 py-1 rounded-lg border border-amber-400/20">
-                {filteredTools.length} Tools
+              <span className="text-amber-400 font-bold shrink-0 self-start sm:self-center bg-amber-400/10 px-3 py-1.5 rounded-xl border border-amber-400/20">
+                Top {featuredTools.length} Essential Tools
               </span>
             </div>
           )}
         </div>
 
-        <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 mb-8">
+        {/* Selected Category View: Prominent "Featured for You" Grid (ONLY top 3-4 essential tools) */}
+        {selectedRole !== 'all' ? (
           <div>
-            <h2 className="text-2xl sm:text-3xl font-bold text-white tracking-tight mb-2">
-              {selectedRole === 'all' ? (
-                <>
-                  Comprehensive <span className="text-brand-gold">PDF Suite</span>
-                </>
-              ) : (
-                <>
-                  {currentRoleObj.name} <span className="text-brand-gold">Toolkit</span>
-                </>
-              )}
-            </h2>
-            <p className="text-xs sm:text-sm text-zinc-400">
-              {selectedRole === 'all'
-                ? 'Every tool is fully functional, browser-powered, and free of subscriptions.'
-                : `Hand-picked professional suite tailored for ${currentRoleObj.name}.`}
-            </p>
-          </div>
+            <div className="flex items-center justify-between gap-4 mb-4">
+              <div>
+                <h3 className="text-base sm:text-lg font-bold text-white flex items-center gap-2">
+                  <Sparkles className="w-4 h-4 text-amber-400" />
+                  <span>Featured for You</span>
+                </h3>
+                <p className="text-xs text-zinc-400">
+                  Top essential tools curated specifically for {currentRoleObj.name}.
+                </p>
+              </div>
+            </div>
 
-          {/* Category Filter Pills */}
-          <div className="flex items-center gap-1.5 overflow-x-auto pb-2 no-scrollbar">
-            {categories.map((cat) => (
-              <button
-                key={cat.id}
-                onClick={() => setActiveCategory(cat.id)}
-                className={`px-3.5 py-1.5 rounded-xl text-xs font-semibold transition shrink-0 ${
-                  activeCategory === cat.id
-                    ? 'bg-brand-gold text-black shadow-sm'
-                    : 'bg-zinc-900 text-zinc-400 hover:text-zinc-200 border border-white/5'
-                }`}
-              >
-                {cat.label}
-              </button>
-            ))}
-          </div>
-        </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+              {featuredTools.map((tool) => {
+                const ToolIcon = ICON_MAP[tool.icon] || FileEdit;
+                const roleOverride = currentRoleObj.roleSpecificOverrides?.[tool.id];
+                const displayName = roleOverride?.title || tool.name;
+                const displayDesc = roleOverride?.subtitle || tool.description;
+                const displayBadge = roleOverride?.badge || tool.badge;
 
-        {/* Tools Grid */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-          {filteredTools.map((tool) => {
-            const ToolIcon = ICON_MAP[tool.icon] || FileEdit;
-            return (
-              <Link
-                key={tool.id}
-                to={tool.path}
-                className="group relative flex flex-col justify-between p-5 rounded-2xl bg-[#0E0E14] border border-white/10 hover:border-brand-gold/40 hover:bg-[#12121A] transition-all duration-200 shadow-sm hover:shadow-gold-glow"
-              >
-                <div>
-                  <div className="flex items-center justify-between mb-3.5">
-                    <div className="w-11 h-11 rounded-xl bg-zinc-900 border border-white/10 flex items-center justify-center text-zinc-300 group-hover:text-brand-gold group-hover:border-amber-500/30 transition">
-                      <ToolIcon className="w-5 h-5" />
+                return (
+                  <Link
+                    key={tool.id}
+                    to={tool.path}
+                    className="group relative flex flex-col justify-between p-5 rounded-3xl bg-[#0E0E14] border border-white/10 hover:border-amber-400/50 hover:bg-[#12121B] transition-all duration-300 shadow-xl hover:shadow-gold-glow"
+                  >
+                    <div>
+                      <div className="flex items-center justify-between mb-4">
+                        <div className="w-12 h-12 rounded-2xl bg-amber-400/10 border border-amber-400/20 flex items-center justify-center text-amber-400 group-hover:scale-105 group-hover:bg-amber-400/20 transition">
+                          <ToolIcon className="w-6 h-6" />
+                        </div>
+                        {displayBadge && (
+                          <span className="text-[10px] font-bold px-2.5 py-1 rounded-full bg-amber-400/10 text-amber-400 border border-amber-400/20">
+                            {displayBadge}
+                          </span>
+                        )}
+                      </div>
+
+                      <h4 className="text-base font-bold text-white group-hover:text-amber-400 transition mb-1.5">
+                        {displayName}
+                      </h4>
+                      <p className="text-xs text-zinc-400 leading-relaxed line-clamp-3">
+                        {displayDesc}
+                      </p>
                     </div>
-                    {tool.badge && (
-                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500/10 text-brand-gold border border-amber-500/20">
-                        {tool.badge}
+
+                    <div className="pt-4 mt-4 border-t border-white/5 flex items-center justify-between text-xs font-semibold text-zinc-400 group-hover:text-amber-400 transition">
+                      <span>Open Tool</span>
+                      <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-1 transition text-amber-400" />
+                    </div>
+                  </Link>
+                );
+              })}
+            </div>
+
+            {/* Accordion / Toggle Button for Other Tools */}
+            <div className="mb-8">
+              <button
+                type="button"
+                onClick={() => setShowOtherTools(!showOtherTools)}
+                className="w-full flex items-center justify-between p-4 sm:p-4.5 rounded-2xl bg-zinc-900/60 border border-white/10 hover:border-amber-400/40 hover:bg-zinc-900/90 transition-all duration-200 group cursor-pointer"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-amber-400/10 flex items-center justify-center text-amber-400 group-hover:scale-105 transition">
+                    <SlidersHorizontal className="w-4 h-4" />
+                  </div>
+                  <div className="text-left">
+                    <span className="font-bold text-xs sm:text-sm text-white group-hover:text-amber-400 transition flex items-center gap-2">
+                      <span>
+                        {showOtherTools
+                          ? 'Hide Additional Tools'
+                          : 'Show All Other Tools (Manual Access)'}
                       </span>
-                    )}
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-400/10 text-amber-400 border border-amber-400/20">
+                        {otherTools.length} More Tools
+                      </span>
+                    </span>
+                    <span className="text-[11px] text-zinc-400 block mt-0.5">
+                      {showOtherTools
+                        ? 'Collapse catalog back to essential featured tools'
+                        : 'Explore all other document, conversion, organize, and security tools'}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2 text-zinc-400 group-hover:text-white">
+                  <span className="text-xs font-semibold hidden sm:inline">
+                    {showOtherTools ? 'Collapse' : 'Expand Catalog'}
+                  </span>
+                  <ChevronDown
+                    className={`w-4 h-4 transition-transform duration-300 ${
+                      showOtherTools ? 'rotate-180 text-amber-400' : ''
+                    }`}
+                  />
+                </div>
+              </button>
+            </div>
+
+            {/* Collapsible Full Catalog Grid */}
+            {showOtherTools && (
+              <div className="p-6 rounded-3xl bg-[#0B0B10] border border-white/10 shadow-2xl animate-fadeIn space-y-6">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                  <div>
+                    <h4 className="text-sm font-bold text-white uppercase tracking-wider">
+                      Complete Tool Catalog
+                    </h4>
+                    <p className="text-xs text-zinc-400">
+                      Filter other tools by category or browse the full collection.
+                    </p>
                   </div>
 
-                  <h3 className="text-base font-bold text-white group-hover:text-brand-gold transition mb-1.5">
-                    {tool.name}
-                  </h3>
-                  <p className="text-xs text-zinc-400 leading-relaxed line-clamp-2">
-                    {tool.description}
-                  </p>
+                  {/* Category Filter Pills */}
+                  <div className="flex items-center gap-1.5 overflow-x-auto pb-1 no-scrollbar">
+                    {categories.map((cat) => (
+                      <button
+                        key={cat.id}
+                        onClick={() => setActiveCategory(cat.id)}
+                        className={`px-3 py-1 rounded-xl text-xs font-semibold transition shrink-0 ${
+                          activeCategory === cat.id
+                            ? 'bg-amber-400 text-black shadow-sm font-bold'
+                            : 'bg-zinc-900 text-zinc-400 hover:text-zinc-200 border border-white/5'
+                        }`}
+                      >
+                        {cat.label}
+                      </button>
+                    ))}
+                  </div>
                 </div>
 
-                <div className="pt-4 mt-4 border-t border-white/5 flex items-center justify-between text-[11px] text-zinc-500 group-hover:text-zinc-300 transition">
-                  <span className="uppercase tracking-wider font-semibold text-[10px] text-zinc-500">
-                    {CATEGORY_LABELS[tool.category]}
-                  </span>
-                  <ArrowRight className="w-3.5 h-3.5 text-zinc-500 group-hover:text-brand-gold group-hover:translate-x-1 transition" />
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                  {filteredOtherTools.map((tool) => {
+                    const ToolIcon = ICON_MAP[tool.icon] || FileEdit;
+                    return (
+                      <Link
+                        key={tool.id}
+                        to={tool.path}
+                        className="group relative flex flex-col justify-between p-4.5 rounded-2xl bg-[#0E0E14] border border-white/10 hover:border-amber-400/40 hover:bg-[#12121A] transition-all duration-200 shadow-sm hover:shadow-gold-glow"
+                      >
+                        <div>
+                          <div className="flex items-center justify-between mb-3">
+                            <div className="w-10 h-10 rounded-xl bg-zinc-900 border border-white/10 flex items-center justify-center text-zinc-300 group-hover:text-amber-400 group-hover:border-amber-500/30 transition">
+                              <ToolIcon className="w-4 h-4" />
+                            </div>
+                            {tool.badge && (
+                              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                                {tool.badge}
+                              </span>
+                            )}
+                          </div>
+
+                          <h5 className="text-sm font-bold text-white group-hover:text-amber-400 transition mb-1">
+                            {tool.name}
+                          </h5>
+                          <p className="text-xs text-zinc-400 leading-relaxed line-clamp-2">
+                            {tool.description}
+                          </p>
+                        </div>
+
+                        <div className="pt-3 mt-3 border-t border-white/5 flex items-center justify-between text-[11px] text-zinc-500 group-hover:text-zinc-300 transition">
+                          <span className="uppercase tracking-wider font-semibold text-[10px] text-zinc-500">
+                            {CATEGORY_LABELS[tool.category]}
+                          </span>
+                          <ArrowRight className="w-3 h-3 text-zinc-500 group-hover:text-amber-400 group-hover:translate-x-1 transition" />
+                        </div>
+                      </Link>
+                    );
+                  })}
                 </div>
-              </Link>
-            );
-          })}
-        </div>
+              </div>
+            )}
+          </div>
+        ) : (
+          /* When "🌐 All Tools" is selected: Full catalog view */
+          <div>
+            <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 mb-8">
+              <div>
+                <h2 className="text-2xl sm:text-3xl font-bold text-white tracking-tight mb-2">
+                  Comprehensive <span className="text-brand-gold">PDF Suite</span>
+                </h2>
+                <p className="text-xs sm:text-sm text-zinc-400">
+                  Every tool is fully functional, browser-powered, and free of subscriptions.
+                </p>
+              </div>
+
+              {/* Category Filter Pills */}
+              <div className="flex items-center gap-1.5 overflow-x-auto pb-2 no-scrollbar">
+                {categories.map((cat) => (
+                  <button
+                    key={cat.id}
+                    onClick={() => setActiveCategory(cat.id)}
+                    className={`px-3.5 py-1.5 rounded-xl text-xs font-semibold transition shrink-0 ${
+                      activeCategory === cat.id
+                        ? 'bg-brand-gold text-black shadow-sm font-bold'
+                        : 'bg-zinc-900 text-zinc-400 hover:text-zinc-200 border border-white/5'
+                    }`}
+                  >
+                    {cat.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* All Tools Grid */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+              {allFilteredTools.map((tool) => {
+                const ToolIcon = ICON_MAP[tool.icon] || FileEdit;
+                return (
+                  <Link
+                    key={tool.id}
+                    to={tool.path}
+                    className="group relative flex flex-col justify-between p-5 rounded-2xl bg-[#0E0E14] border border-white/10 hover:border-brand-gold/40 hover:bg-[#12121A] transition-all duration-200 shadow-sm hover:shadow-gold-glow"
+                  >
+                    <div>
+                      <div className="flex items-center justify-between mb-3.5">
+                        <div className="w-11 h-11 rounded-xl bg-zinc-900 border border-white/10 flex items-center justify-center text-zinc-300 group-hover:text-brand-gold group-hover:border-amber-500/30 transition">
+                          <ToolIcon className="w-5 h-5" />
+                        </div>
+                        {tool.badge && (
+                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500/10 text-brand-gold border border-amber-500/20">
+                            {tool.badge}
+                          </span>
+                        )}
+                      </div>
+
+                      <h3 className="text-base font-bold text-white group-hover:text-brand-gold transition mb-1.5">
+                        {tool.name}
+                      </h3>
+                      <p className="text-xs text-zinc-400 leading-relaxed line-clamp-2">
+                        {tool.description}
+                      </p>
+                    </div>
+
+                    <div className="pt-4 mt-4 border-t border-white/5 flex items-center justify-between text-[11px] text-zinc-500 group-hover:text-zinc-300 transition">
+                      <span className="uppercase tracking-wider font-semibold text-[10px] text-zinc-500">
+                        {CATEGORY_LABELS[tool.category]}
+                      </span>
+                      <ArrowRight className="w-3.5 h-3.5 text-zinc-500 group-hover:text-brand-gold group-hover:translate-x-1 transition" />
+                    </div>
+                  </Link>
+                );
+              })}
+            </div>
+          </div>
+        )}
       </section>
 
       {/* Privacy Guarantee Manifesto Section */}

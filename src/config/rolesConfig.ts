@@ -3,100 +3,50 @@ export interface RoleCategory {
   name: string;
   emoji: string;
   label: string;
+  tagline: string;
   description: string;
-  badge?: string;
-  toolIds: string[];
+  badge: string;
+  featuredToolIds: string[];
+  roleSpecificOverrides?: Record<
+    string,
+    { title: string; subtitle: string; badge?: string }
+  >;
+  allToolIds: string[];
 }
 
 export const ROLES: RoleCategory[] = [
   {
-    id: 'all',
-    name: 'All Tools',
-    emoji: '✨',
-    label: 'All Tools',
-    description: 'Complete catalog of 35+ browser-based PDF, document, and studio tools.',
-    toolIds: [], // Empty means all
-  },
-  {
-    id: 'wedding',
-    name: 'Wedding & Events',
-    emoji: '📸',
-    label: '📸 Wedding & Events',
-    description: 'Client photo proofing, wedding quotation generator, guest badges & tent cards, and WhatsApp compression.',
-    badge: 'Studio Pro',
-    toolIds: [
-      'wedding-studio',
-      'photo-proofing',
-      'wedding-quotation',
-      'guest-cards',
-      'compress-pdf',
-      'image-to-pdf',
-      'add-watermark',
-      'pdf-to-images',
-    ],
-  },
-  {
-    id: 'legal',
-    name: 'Legal & Law Firms',
-    emoji: '⚖️',
-    label: '⚖️ Legal & Law Firms',
-    description: 'Court-compliant tools: Sequential Bates numbering, permanent redaction, direct text edit, e-signatures, and comparison.',
-    badge: 'Court Compliant',
-    toolIds: [
-      'bates-numbering',
-      'redact-pdf',
-      'pdf-editor',
-      'sign-pdf',
-      'merge-pdf',
-      'protect-pdf',
-      'compare-pdf',
-      'metadata',
-    ],
-  },
-  {
-    id: 'finance',
-    name: 'CA & Finance',
-    emoji: '💼',
-    label: '💼 CA & Finance',
-    description: 'Tabular PDF to Excel, invoice stamp watermarking, password encryption/unlock, and optical character recognition.',
-    badge: 'Auditor Grade',
-    toolIds: [
-      'pdf-to-excel',
-      'excel-to-pdf',
-      'add-watermark',
-      'protect-pdf',
-      'unlock-pdf',
-      'ocr-pdf',
-      'split-pdf',
-      'merge-pdf',
-    ],
-  },
-  {
-    id: 'printing',
-    name: 'Cyber Cafe & Printing',
-    emoji: '🖨️',
-    label: '🖨️ Cyber Cafe & Printing',
-    description: 'Aadhaar / PAN ID card print layout (4-in-1 & 8-in-1), bulk watermark stamps, camera scanner, and photo prints.',
-    badge: 'Quick Print',
-    toolIds: [
-      'id-card-layout',
-      'scan-to-pdf',
-      'image-to-pdf',
-      'add-watermark',
-      'resize-pdf',
-      'crop-pdf',
-      'pdf-to-images',
-      'compress-pdf',
-    ],
-  },
-  {
-    id: 'education',
-    name: 'Students & Education',
+    id: 'student',
+    name: 'Student',
     emoji: '🎓',
-    label: '🎓 Students & Education',
-    description: 'Mobile homework/notes camera scanner, compress to 200KB for exam forms, merge lectures, and Word conversion.',
-    badge: 'Free for All',
-    toolIds: [
+    label: '🎓 Student',
+    tagline: 'Homework, notes, exam form compression & study guides',
+    description: 'Designed for students: scan notebooks, compress for exam portals under 200KB, merge lectures, and convert to Word.',
+    badge: 'Exam & Notes Ready',
+    featuredToolIds: ['scan-to-pdf', 'compress-pdf', 'merge-pdf', 'pdf-to-word'],
+    roleSpecificOverrides: {
+      'scan-to-pdf': {
+        title: 'Camera Scanner',
+        subtitle: 'Scan handwritten notebook pages and assignments directly with phone or laptop camera.',
+        badge: 'Instant Scan',
+      },
+      'compress-pdf': {
+        title: 'Compress under 200KB',
+        subtitle: 'Shrink exam application forms, marksheets, and resumes to strict upload limits.',
+        badge: 'Strict <200KB',
+      },
+      'merge-pdf': {
+        title: 'Merge Notes & Slides',
+        subtitle: 'Combine lecture slides, teacher handouts, and study chapters into one clean PDF.',
+        badge: 'Top Pick',
+      },
+      'pdf-to-word': {
+        title: 'PDF to Word',
+        subtitle: 'Convert lecture notes and question banks to editable Microsoft Word documents.',
+        badge: 'Editable',
+      },
+    },
+    allToolIds: [
       'scan-to-pdf',
       'compress-pdf',
       'merge-pdf',
@@ -105,6 +55,195 @@ export const ROLES: RoleCategory[] = [
       'ocr-pdf',
       'pdf-to-text',
       'organize-pdf',
+      'rotate-pages',
+      'remove-pages',
     ],
+  },
+  {
+    id: 'teacher',
+    name: 'Teacher',
+    emoji: '👨‍🏫',
+    label: '👨‍🏫 Teacher',
+    tagline: 'Exam papers, question banks, page splitting & watermarking',
+    description: 'Built for educators: correct typos in question papers, watermark confidential tests, split pages, and assemble question banks.',
+    badge: 'Educator Suite',
+    featuredToolIds: ['pdf-editor', 'add-watermark', 'split-pdf', 'merge-pdf'],
+    roleSpecificOverrides: {
+      'pdf-editor': {
+        title: 'Direct Text Edit',
+        subtitle: 'Fix typos, update marks, and edit exam questions directly without rewriting files.',
+        badge: 'Direct Edit',
+      },
+      'add-watermark': {
+        title: 'Watermark Exam Papers',
+        subtitle: 'Stamp "CONFIDENTIAL", school name, or custom watermark on question papers.',
+        badge: 'Security',
+      },
+      'split-pdf': {
+        title: 'Split Pages & Chapters',
+        subtitle: 'Separate question sections, extract homework assignments, and distribute specific tests.',
+        badge: 'Quick Split',
+      },
+      'merge-pdf': {
+        title: 'Merge Question Bank',
+        subtitle: 'Compile yearly question banks, syllabus guides, and answer keys in proper order.',
+        badge: 'Essential',
+      },
+    },
+    allToolIds: [
+      'pdf-editor',
+      'add-watermark',
+      'split-pdf',
+      'merge-pdf',
+      'page-numbers',
+      'header-footer',
+      'crop-pdf',
+      'redact-pdf',
+      'scan-to-pdf',
+      'pdf-to-word',
+    ],
+  },
+  {
+    id: 'creator',
+    name: 'Creator & Studio',
+    emoji: '🎨',
+    label: '🎨 Creator & Studio',
+    tagline: 'Photo proofing, album PDF, WhatsApp shrink & watermark',
+    description: 'Tailored for photographers, designers & creators: proof albums with star ratings, make photobooks, and share via WhatsApp.',
+    badge: 'Studio Pro',
+    featuredToolIds: ['photo-proofing', 'image-to-pdf', 'compress-pdf', 'add-watermark'],
+    roleSpecificOverrides: {
+      'photo-proofing': {
+        title: 'Photo Proofing & Selection',
+        subtitle: 'Let clients rate 1-5★, heart favorites, reject shots, and export Lightroom filenames & contact sheets.',
+        badge: 'Client Favorite',
+      },
+      'image-to-pdf': {
+        title: 'Image to PDF Album',
+        subtitle: 'Combine high-res JPG/PNG photoshoot images into a bound, high-definition photobook PDF.',
+        badge: 'Lossless',
+      },
+      'compress-pdf': {
+        title: 'WhatsApp Compressor',
+        subtitle: 'Shrink wedding preview albums under 15MB for effortless delivery on WhatsApp & mobile.',
+        badge: 'Mobile Ready',
+      },
+      'add-watermark': {
+        title: 'Watermark Stamping',
+        subtitle: 'Batch stamp studio logos or copyright stamps to protect unreleased client photo proofs.',
+        badge: 'Copyright',
+      },
+    },
+    allToolIds: [
+      'wedding-studio',
+      'photo-proofing',
+      'image-to-pdf',
+      'compress-pdf',
+      'add-watermark',
+      'wedding-quotation',
+      'guest-cards',
+      'pdf-to-images',
+      'resize-pdf',
+    ],
+  },
+  {
+    id: 'business',
+    name: 'Business & Cyber Cafe',
+    emoji: '💼',
+    label: '💼 Business & Cyber Cafe',
+    tagline: 'ID card print layout, invoices, receipts & digital signing',
+    description: 'Designed for cyber cafe owners, shops & retail: 4-in-1/8-in-1 Aadhaar/PAN print layout, instant quotations, and e-signatures.',
+    badge: 'Retail Ready',
+    featuredToolIds: ['id-card-layout', 'wedding-quotation', 'sign-pdf', 'scan-to-pdf'],
+    roleSpecificOverrides: {
+      'id-card-layout': {
+        title: 'ID Card 4-in-1/8-in-1 Print Layout',
+        subtitle: 'Print Aadhaar, PAN, and Voter IDs front & back with exact CR80 sizing and scissor cut marks.',
+        badge: 'Cyber Cafe Pro',
+      },
+      'wedding-quotation': {
+        title: 'Invoice / Quotation Maker',
+        subtitle: 'Generate professional service quotations, automated GST taxes, and integrated dual e-signatures.',
+        badge: 'Auto GST',
+      },
+      'sign-pdf': {
+        title: 'Digital E-Signature',
+        subtitle: 'Sign contracts, application forms, and customer receipts directly in the browser.',
+        badge: 'Legal Sign',
+      },
+      'scan-to-pdf': {
+        title: 'Camera Scanner',
+        subtitle: 'Quickly scan customer documents, identity cards, and receipts ready for PDF print.',
+        badge: 'Fast Print',
+      },
+    },
+    allToolIds: [
+      'id-card-layout',
+      'wedding-quotation',
+      'sign-pdf',
+      'scan-to-pdf',
+      'add-watermark',
+      'image-to-pdf',
+      'resize-pdf',
+      'crop-pdf',
+      'compress-pdf',
+      'merge-pdf',
+    ],
+  },
+  {
+    id: 'office',
+    name: 'Office',
+    emoji: '🏢',
+    label: '🏢 Office',
+    tagline: 'Direct text edit, Excel export, password protect & legal Bates',
+    description: 'Essential toolkit for office desks, legal teams & administrators: direct PDF text editing, Excel conversions, encryption, and Bates stamps.',
+    badge: 'Corporate Grade',
+    featuredToolIds: ['pdf-editor', 'pdf-to-excel', 'protect-pdf', 'bates-numbering'],
+    roleSpecificOverrides: {
+      'pdf-editor': {
+        title: 'Direct Text Edit',
+        subtitle: 'Edit contract terms, proposals, and official letters directly without converting to Word.',
+        badge: 'Direct Edit',
+      },
+      'pdf-to-excel': {
+        title: 'PDF to Excel',
+        subtitle: 'Extract financial balances, ledgers, invoice data, and tables cleanly into spreadsheet format.',
+        badge: 'Tables & Ledger',
+      },
+      'protect-pdf': {
+        title: 'Password Protect',
+        subtitle: 'Encrypt confidential corporate audits, employee records, and payroll PDFs with strong AES passwords.',
+        badge: 'Encrypted',
+      },
+      'bates-numbering': {
+        title: 'Bates Numbering',
+        subtitle: 'Stamp sequential legal Bates numbers for discovery, compliance, and court document indexing.',
+        badge: 'Court Compliant',
+      },
+    },
+    allToolIds: [
+      'pdf-editor',
+      'pdf-to-excel',
+      'protect-pdf',
+      'bates-numbering',
+      'excel-to-pdf',
+      'unlock-pdf',
+      'redact-pdf',
+      'compare-pdf',
+      'metadata',
+      'merge-pdf',
+      'split-pdf',
+    ],
+  },
+  {
+    id: 'all',
+    name: 'All Tools',
+    emoji: '🌐',
+    label: '🌐 All Tools',
+    tagline: 'Complete manual catalog of 35+ browser-based tools',
+    description: 'Browse the complete unconstrained library of all PDF, document, scanner, and studio tools.',
+    badge: '35+ Tools',
+    featuredToolIds: ['pdf-editor', 'merge-pdf', 'split-pdf', 'compress-pdf'],
+    allToolIds: [], // Empty means all
   },
 ];
