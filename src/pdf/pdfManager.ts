@@ -11,11 +11,15 @@ export interface RenderPageResult {
   viewport: any;
 }
 
-export async function loadPdfDocument(data: Uint8Array | ArrayBuffer): Promise<pdfjsLib.PDFDocumentProxy> {
+export async function loadPdfDocument(
+  data: Uint8Array | ArrayBuffer,
+  password?: string
+): Promise<pdfjsLib.PDFDocumentProxy> {
   const loadingTask = pdfjsLib.getDocument({
     data: new Uint8Array(data),
     cMapUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/cmaps/',
     cMapPacked: true,
+    ...(password ? { password } : {}),
   });
 
   return await loadingTask.promise;

@@ -57,6 +57,11 @@ import { BookmarkGeneratorPage } from './pages/tools/BookmarkGeneratorPage';
 import { FormFillerPage } from './pages/tools/FormFillerPage';
 import { InkSaverPage } from './pages/tools/InkSaverPage';
 import { BatchRenamerPage } from './pages/tools/BatchRenamerPage';
+import { VernacularOcrPage } from './pages/tools/VernacularOcrPage';
+import { PdfUnlockerPage } from './pages/tools/PdfUnlockerPage';
+import { NUpImpositionPage } from './pages/tools/NUpImpositionPage';
+import { PerspectiveCropperPage } from './pages/tools/PerspectiveCropperPage';
+import { MergeNumberingPage } from './pages/tools/MergeNumberingPage';
 
 // Scroll to top on route change
 function ScrollToTop() {
@@ -156,6 +161,17 @@ export const App: React.FC = () => {
             <Route path="/ink-saver" element={<InkSaverPage />} />
             <Route path="/tools/batch-renamer" element={<BatchRenamerPage />} />
             <Route path="/batch-renamer" element={<BatchRenamerPage />} />
+            {/* Final Power Utility Modules */}
+            <Route path="/tools/vernacular-ocr" element={<VernacularOcrPage />} />
+            <Route path="/vernacular-ocr" element={<VernacularOcrPage />} />
+            <Route path="/tools/unlock-permissions" element={<PdfUnlockerPage />} />
+            <Route path="/unlock-permissions" element={<PdfUnlockerPage />} />
+            <Route path="/tools/n-up-imposition" element={<NUpImpositionPage />} />
+            <Route path="/n-up-imposition" element={<NUpImpositionPage />} />
+            <Route path="/tools/perspective-cropper" element={<PerspectiveCropperPage />} />
+            <Route path="/perspective-cropper" element={<PerspectiveCropperPage />} />
+            <Route path="/tools/merge-numbering" element={<MergeNumberingPage />} />
+            <Route path="/merge-numbering" element={<MergeNumberingPage />} />
             {/* Fallback route */}
             <Route path="*" element={<Home />} />
           </Routes>

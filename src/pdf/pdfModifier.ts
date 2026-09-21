@@ -2136,3 +2136,302 @@ export async function bakeFormFieldsOnPdf(
   return await doc.save({ useObjectStreams: true });
 }
 
+// 21. UNLOCK PDF PERMISSIONS
+export async function unlockPdfPermissions(
+  sourceBytes: Uint8Array,
+  _password?: string
+): Promise<Uint8Array> {
+  const sourceDoc = await PDFDocument.load(sourceBytes, { ignoreEncryption: true });
+  const targetDoc = await PDFDocument.create();
+  copyDocumentMetadata(sourceDoc, targetDoc);
+  const totalPages = sourceDoc.getPageCount();
+  if (totalPages > 0) {
+    const indices = Array.from({ length: totalPages }, (_, i) => i);
+    const copiedPages = await targetDoc.copyPages(sourceDoc, indices);
+    copiedPages.forEach((page) => targetDoc.addPage(page));
+  }
+  return await targetDoc.save({ useObjectStreams: true });
+}
+
+// 22. MULTI-PAGE N-UP GRID IMPOSITION
+export interface NUpGridOptions {
+  layout: '2x1' | '2x2' | '3x3';
+  sheetSize: 'A4' | 'A3' | 'Letter';
+  orientation: 'landscape' | 'portrait';
+  drawCutLines: boolean;
+  drawPageBorders: boolean;
+  marginPt: number;
+  gutterPt: number;
+}
+
+export async function formatNUpGridPdf(
+  sourceBytes: Uint8Array,
+  options: NUpGridOptions
+): Promise<Uint8Array> {
+  const sourceDoc = await PDFDocument.load(sourceBytes, { ignoreEncryption: true });
+  const targetDoc = await PDFDocument.create();
+  const totalSourcePages = sourceDoc.getPageCount();
+
+  if (totalSourcePages === 0) {
+    return sourceBytes;
+  }
+
+  // Base dimensions in points (72 points = 1 inch)
+  // A4: 595.28 x 841.89, A3: 841.89 x 1190.55, Letter: 612 x 792
+  let sheetW = 595.28;
+  let sheetH = 841.89;
+
+  if (options.sheetSize === 'A3') {
+    sheetW = 841.89;
+    sheetH = 1190.55;
+  } else if (options.sheetSize === 'Letter') {
+    sheetW = 612;
+    sheetH = 792;
+  }
+
+  if (options.orientation === 'landscape') {
+    if (sheetW < sheetH) {
+      const temp = sheetW;
+      sheetW = sheetH;
+      sheetH = temp;
+    }
+  } else {
+    if (sheetW > sheetH) {
+      const temp = sheetW;
+      sheetW = sheetH;
+      sheetH = temp;
+    }
+  }
+
+  // Determine grid dimensions (cols x rows)
+  let cols = 2;
+  let rows = 1;
+  if (options.layout === '2x1') {
+    if (options.orientation === 'portrait') {
+      cols = 1;
+      rows = 2;
+    } else {
+      cols = 2;
+      rows = 1;
+    }
+  } else if (options.layout === '2x2') {
+    cols = 2;
+    rows = 2;
+  } else if (options.layout === '3x3') {
+    cols = 3;
+    rows = 3;
+  }
+
+  const pagesPerSheet = cols * rows;
+  const margin = options.marginPt || 16;
+  const gutter = options.gutterPt || 8;
+
+  const usableW = sheetW - margin * 2 - (cols - 1) * gutter;
+  const usableH = sheetH - margin * 2 - (rows - 1) * gutter;
+
+  const cellW = usableW / cols;
+  const cellH = usableH / rows;
+
+  for (let i = 0; i < totalSourcePages; i += pagesPerSheet) {
+    const sheet = targetDoc.addPage([sheetW, sheetH]);
+
+    for (let slot = 0; slot < pagesPerSheet; slot++) {
+      const pageIndex = i + slot;
+      if (pageIndex >= totalSourcePages) break;
+
+      const col = slot % cols;
+      const row = Math.floor(slot / cols);
+
+      const origPage = sourceDoc.getPage(pageIndex);
+      const embedded = await targetDoc.embedPage(origPage);
+      const { width: origW, height: origH } = origPage.getSize();
+
+      // Fit preserving aspect ratio with inner cell padding
+      const pad = 4;
+      const targetCellW = Math.max(1, cellW - pad * 2);
+      const targetCellH = Math.max(1, cellH - pad * 2);
+      const scale = Math.min(targetCellW / origW, targetCellH / origH);
+
+      const scaledW = origW * scale;
+      const scaledH = origH * scale;
+
+      const cellX = margin + col * (cellW + gutter);
+      // PDF coordinate (0,0) is bottom-left, row 0 is top row
+      const cellY = sheetH - margin - (row + 1) * cellH - row * gutter;
+
+      const drawX = cellX + (cellW - scaledW) / 2;
+      const drawY = cellY + (cellH - scaledH) / 2;
+
+      sheet.drawPage(embedded, {
+        x: drawX,
+        y: drawY,
+        width: scaledW,
+        height: scaledH,
+      });
+
+      if (options.drawPageBorders) {
+        sheet.drawRectangle({
+          x: drawX,
+          y: drawY,
+          width: scaledW,
+          height: scaledH,
+          borderColor: rgb(0.8, 0.8, 0.85),
+          borderWidth: 0.5,
+          opacity: 0.7,
+        });
+      }
+    }
+
+    // Draw cut lines between rows and columns if enabled
+    if (options.drawCutLines) {
+      // Vertical cut lines between columns
+      for (let c = 1; c < cols; c++) {
+        const cutX = margin + c * cellW + (c - 0.5) * gutter;
+        sheet.drawLine({
+          start: { x: cutX, y: margin / 2 },
+          end: { x: cutX, y: sheetH - margin / 2 },
+          thickness: 0.6,
+          color: rgb(0.55, 0.55, 0.6),
+          dashArray: [4, 4],
+          opacity: 0.7,
+        });
+      }
+
+      // Horizontal cut lines between rows
+      for (let r = 1; r < rows; r++) {
+        const cutY = sheetH - margin - r * cellH - (r - 0.5) * gutter;
+        sheet.drawLine({
+          start: { x: margin / 2, y: cutY },
+          end: { x: sheetW - margin / 2, y: cutY },
+          thickness: 0.6,
+          color: rgb(0.55, 0.55, 0.6),
+          dashArray: [4, 4],
+          opacity: 0.7,
+        });
+      }
+    }
+  }
+
+  return await targetDoc.save({ useObjectStreams: true });
+}
+
+// 23. BATCH MERGE WITH CONTINUOUS NUMBERING
+export interface ContinuousNumberingOptions {
+  position: 'bottom-center' | 'bottom-right' | 'bottom-left' | 'top-center' | 'top-right' | 'top-left';
+  format: 'page-x-of-y' | 'page-x' | 'dash-x-dash' | 'x-slash-y' | 'custom';
+  customPattern?: string; // e.g. "Doc - Page {n}"
+  fontSize: number;
+  startNumber: number;
+  marginPt: number;
+  skipFirstPage: boolean;
+  colorHex?: string;
+  headerText?: string;
+}
+
+export async function mergePdfWithContinuousNumbering(
+  files: { bytes: Uint8Array; name: string }[],
+  options: ContinuousNumberingOptions
+): Promise<Uint8Array> {
+  const mergedDoc = await PDFDocument.create();
+  let firstDocMetadataCopied = false;
+
+  // 1. Merge all documents in order
+  for (const file of files) {
+    const doc = await PDFDocument.load(file.bytes, { ignoreEncryption: true });
+    if (!firstDocMetadataCopied) {
+      copyDocumentMetadata(doc, mergedDoc);
+      firstDocMetadataCopied = true;
+    }
+    const copiedPages = await mergedDoc.copyPages(doc, doc.getPageIndices());
+    copiedPages.forEach((page) => mergedDoc.addPage(page));
+  }
+
+  const totalPages = mergedDoc.getPageCount();
+  if (totalPages === 0) {
+    return await mergedDoc.save({ useObjectStreams: true });
+  }
+
+  const font = await mergedDoc.embedFont(StandardFonts.Helvetica);
+  const boldFont = await mergedDoc.embedFont(StandardFonts.HelveticaBold);
+  const colorRgb = hexToRgb(options.colorHex || '#111827');
+  const textColor = rgb(colorRgb.r, colorRgb.g, colorRgb.b);
+
+  const effectiveTotal = options.skipFirstPage ? Math.max(1, totalPages - 1) : totalPages;
+  const startIndex = options.skipFirstPage ? 1 : 0;
+
+  for (let i = 0; i < totalPages; i++) {
+    if (options.skipFirstPage && i === 0) continue;
+
+    const page = mergedDoc.getPage(i);
+    const { width: pageW, height: pageH } = page.getSize();
+    const currentNumber = options.startNumber + (i - startIndex);
+
+    // Format page string
+    let pageStr = `Page ${currentNumber} of ${effectiveTotal}`;
+    if (options.format === 'page-x') {
+      pageStr = `Page ${currentNumber}`;
+    } else if (options.format === 'dash-x-dash') {
+      pageStr = `- ${currentNumber} -`;
+    } else if (options.format === 'x-slash-y') {
+      pageStr = `${currentNumber} / ${effectiveTotal}`;
+    } else if (options.format === 'custom' && options.customPattern) {
+      pageStr = options.customPattern
+        .replace(/{n}/g, String(currentNumber))
+        .replace(/{total}/g, String(effectiveTotal));
+    }
+
+    const fontSize = options.fontSize || 10;
+    const textWidth = font.widthOfTextAtSize(pageStr, fontSize);
+    const margin = options.marginPt || 25;
+
+    // Calculate X and Y coordinates based on position
+    let x = (pageW - textWidth) / 2;
+    let y = margin;
+
+    if (options.position === 'bottom-left') {
+      x = margin;
+      y = margin;
+    } else if (options.position === 'bottom-center') {
+      x = (pageW - textWidth) / 2;
+      y = margin;
+    } else if (options.position === 'bottom-right') {
+      x = pageW - margin - textWidth;
+      y = margin;
+    } else if (options.position === 'top-left') {
+      x = margin;
+      y = pageH - margin - fontSize;
+    } else if (options.position === 'top-center') {
+      x = (pageW - textWidth) / 2;
+      y = pageH - margin - fontSize;
+    } else if (options.position === 'top-right') {
+      x = pageW - margin - textWidth;
+      y = pageH - margin - fontSize;
+    }
+
+    // Draw header text if specified and position is footer
+    if (options.headerText && options.headerText.trim()) {
+      const headerStr = options.headerText.trim();
+      const headerFontSize = Math.max(8, fontSize - 1);
+      const headerY = pageH - margin - headerFontSize;
+      page.drawText(headerStr, {
+        x: margin,
+        y: headerY,
+        size: headerFontSize,
+        font: boldFont,
+        color: rgb(0.3, 0.3, 0.35),
+      });
+    }
+
+    page.drawText(pageStr, {
+      x,
+      y,
+      size: fontSize,
+      font,
+      color: textColor,
+    });
+  }
+
+  return await mergedDoc.save({ useObjectStreams: true });
+}
+
+
