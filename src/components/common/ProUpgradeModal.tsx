@@ -143,31 +143,59 @@ export const ProUpgradeModal: React.FC = () => {
 
         {/* Modal Body */}
         <div className="p-6 overflow-y-auto space-y-6 text-xs text-zinc-300">
-          {/* Pro Benefits Checklist */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 p-4 rounded-2xl bg-black/40 border border-white/5">
-            <div className="flex items-center gap-2 text-zinc-200">
-              <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-              <span>Unlimited High-Volume Batch Merge &amp; OCR</span>
+          {/* Real Free vs Pro Comparison Table */}
+          <div className="rounded-2xl bg-black/50 border border-white/10 overflow-hidden shadow-inner">
+            <div className="px-4 py-2.5 bg-zinc-900/80 border-b border-white/5 flex items-center justify-between">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-zinc-400">
+                Transparent Feature Comparison
+              </span>
+              <span className="text-[10px] text-brand-gold font-semibold">
+                No Hidden Surprises
+              </span>
             </div>
-            <div className="flex items-center gap-2 text-zinc-200">
-              <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-              <span>High-Resolution Microsoft Word (.DOCX) Export</span>
-            </div>
-            <div className="flex items-center gap-2 text-zinc-200">
-              <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-              <span>Print Shop N-Up Grid Imposition with Cut-Marks</span>
-            </div>
-            <div className="flex items-center gap-2 text-zinc-200">
-              <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-              <span>Perspective Camera Photo Rectifier &amp; Flattener</span>
-            </div>
-            <div className="flex items-center gap-2 text-zinc-200">
-              <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-              <span>Priority Local Browser Acceleration</span>
-            </div>
-            <div className="flex items-center gap-2 text-zinc-200">
-              <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-              <span>100% Private • No Cloud Server Uploads</span>
+
+            <div className="divide-y divide-white/5 text-[11px]">
+              <div className="grid grid-cols-3 p-3 bg-white/[0.02] font-semibold text-zinc-400">
+                <span>Feature</span>
+                <span className="text-center text-zinc-300">Free Tier</span>
+                <span className="text-center text-brand-gold font-bold">Pro Lifetime</span>
+              </div>
+
+              <div className="grid grid-cols-3 p-2.5 items-center">
+                <span className="text-zinc-300">Max File Size</span>
+                <span className="text-center text-zinc-400">Up to 100 MB</span>
+                <span className="text-center text-emerald-400 font-semibold">Unlimited / Large Files</span>
+              </div>
+
+              <div className="grid grid-cols-3 p-2.5 items-center bg-white/[0.01]">
+                <span className="text-zinc-300">Watermark Policy</span>
+                <span className="text-center text-emerald-400 font-semibold">Zero forced watermarks</span>
+                <span className="text-center text-emerald-400 font-semibold">Zero forced watermarks</span>
+              </div>
+
+              <div className="grid grid-cols-3 p-2.5 items-center">
+                <span className="text-zinc-300">Core PDF Editing</span>
+                <span className="text-center text-emerald-400 font-semibold">Full text, draw, sign</span>
+                <span className="text-center text-emerald-400 font-semibold">Full text, draw, sign</span>
+              </div>
+
+              <div className="grid grid-cols-3 p-2.5 items-center bg-white/[0.01]">
+                <span className="text-zinc-300">Batch Processing</span>
+                <span className="text-center text-zinc-400">Standard</span>
+                <span className="text-center text-emerald-400 font-semibold">50+ Files (Renamer/Merge)</span>
+              </div>
+
+              <div className="grid grid-cols-3 p-2.5 items-center">
+                <span className="text-zinc-300">Print Shop Utilities</span>
+                <span className="text-center text-zinc-400">Standard print</span>
+                <span className="text-center text-emerald-400 font-semibold">N-Up &amp; Booklet Imposition</span>
+              </div>
+
+              <div className="grid grid-cols-3 p-2.5 items-center bg-white/[0.01]">
+                <span className="text-zinc-300">Client-Side Privacy</span>
+                <span className="text-center text-emerald-400 font-semibold">100% In-Browser</span>
+                <span className="text-center text-emerald-400 font-semibold">100% In-Browser</span>
+              </div>
             </div>
           </div>
 

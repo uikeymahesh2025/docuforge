@@ -133,14 +133,13 @@ export const MegaMenu: React.FC<MegaMenuProps> = ({ isOpen, onClose, isMobile = 
   };
 
   const categories: ToolCategory[] = [
-    'organize',
-    'edit',
-    'convert-to',
-    'convert-from',
-    'optimize',
-    'page-tools',
-    'security',
-    'other',
+    'edit-sign',
+    'pages',
+    'convert',
+    'compress',
+    'secure',
+    'more-tools',
+    'hubs',
   ];
 
   // Mobile full-screen slide-over drawer

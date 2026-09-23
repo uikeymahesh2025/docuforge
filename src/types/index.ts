@@ -1,4 +1,12 @@
 export type ToolCategory =
+  | 'edit-sign'
+  | 'pages'
+  | 'convert'
+  | 'compress'
+  | 'secure'
+  | 'more-tools'
+  | 'hubs'
+  // Legacy aliases for backward compatibility
   | 'organize'
   | 'edit'
   | 'convert-to'
@@ -16,6 +24,8 @@ export interface ToolItem {
   path: string;
   icon: string; // Lucide icon name
   badge?: string;
+  keywords?: string[];
+  isNicheHub?: boolean;
 }
 
 export type EditorTool =

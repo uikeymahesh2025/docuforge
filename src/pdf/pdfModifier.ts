@@ -1105,13 +1105,19 @@ async function renderUnicodeAnnotationToPdfImage(
   });
 }
 
+export interface BakeAnnotationsOptions {
+  pageRange?: string;
+  flattenAnnotations?: boolean;
+}
+
 // 14. BAKE EDITOR ANNOTATIONS ONTO PDF (Including Direct Text Edits & Image Replacements)
 export async function bakeAnnotationsOnPdf(
   sourceBytes: Uint8Array,
   annotations: AnyAnnotation[],
   directTextEdits: DirectTextEdit[] = [],
   imageReplacements: ImageReplacement[] = [],
-  editorRotation = 0
+  editorRotation = 0,
+  options?: BakeAnnotationsOptions
 ): Promise<Uint8Array> {
   const doc = await PDFDocument.load(sourceBytes, { ignoreEncryption: true });
   const helveticaFont = await doc.embedFont(StandardFonts.Helvetica);
@@ -1368,6 +1374,39 @@ export async function bakeAnnotationsOnPdf(
     for (let pageIdx = 0; pageIdx < totalPages; pageIdx++) {
       const page = doc.getPage(pageIdx);
       page.setRotation(degrees((page.getRotation().angle + editorRotation) % 360));
+    }
+  }
+
+  // Handle selective page range export if specified
+  if (options?.pageRange && options.pageRange.trim().toLowerCase() !== 'all') {
+    const parts = options.pageRange.split(',').map((s) => s.trim()).filter(Boolean);
+    const selectedIndices: number[] = [];
+    for (const part of parts) {
+      if (part.includes('-')) {
+        const [startStr, endStr] = part.split('-');
+        let start = parseInt(startStr, 10) - 1;
+        let end = parseInt(endStr, 10) - 1;
+        if (!isNaN(start) && !isNaN(end)) {
+          start = Math.max(0, Math.min(start, totalPages - 1));
+          end = Math.max(0, Math.min(end, totalPages - 1));
+          for (let i = Math.min(start, end); i <= Math.max(start, end); i++) {
+            if (!selectedIndices.includes(i)) selectedIndices.push(i);
+          }
+        }
+      } else {
+        const pNum = parseInt(part, 10) - 1;
+        if (!isNaN(pNum) && pNum >= 0 && pNum < totalPages) {
+          if (!selectedIndices.includes(pNum)) selectedIndices.push(pNum);
+        }
+      }
+    }
+
+    if (selectedIndices.length > 0) {
+      const exportDoc = await PDFDocument.create();
+      copyDocumentMetadata(doc, exportDoc);
+      const copied = await exportDoc.copyPages(doc, selectedIndices);
+      copied.forEach((p) => exportDoc.addPage(p));
+      return await exportDoc.save({ useObjectStreams: true });
     }
   }
 
